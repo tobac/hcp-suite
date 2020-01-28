@@ -5,7 +5,7 @@ LOG_FILE="/tmp/$(basename ${0}).log"
 
 main() {
   parse_args "${@}"
-  parse_common_opts "${ARGS}"; log_everything # parse_args sets shifted ARGS for getopts
+  parse_common_opts ${ARGS}; log_everything # parse_args sets shifted ARGS for getopts
   ${action}
 }
 
