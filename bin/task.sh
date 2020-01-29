@@ -86,15 +86,16 @@ prepare() {
   prepare_main() {
     source "$(dirname $(realpath ${0}))/../lib/task_prepare.sh"
     print_summary
-    call_pipeline_script
+    timer start; call_pipeline_script; timer stop Prepare_tfMRI
+    timer report
   }
 
 print_summary() {
   echo
   echo "-------------------------------------------------------------"
   echo "Task is ${TASK}."
-  echo "IDs file is ${IDSFILE} -> ${NSUBJECTS} subjects"
   echo "Parcellation is ${PARCELLATION}."
+  echo "IDs file is ${IDSFILE} -> ${NSUBJECTS} subjects"
   echo "Log file is ${LOG_FILE}."
   echo "Error handling is ${ERROR_HANDLING}."
   echo "-------------------------------------------------------------"
@@ -140,6 +141,11 @@ call_pipeline_script() {
   if [ -n "${failed_subjects}" ]; then
     echo
     echo "List of failed subjects:${failed_subjects}" # First character is always space
+    echo
+  else
+    echo
+    echo "All subjects prepared successfully."
+    echo
   fi
 }
 
