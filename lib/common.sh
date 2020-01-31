@@ -4,6 +4,7 @@
 ## Options
 HCP="/home/tobac/HCP"
 DATADIR="${HCP}/S1200"
+export HCPPIPEDIR="${HCP}"/HCPpipelines
 PARCELLATION_DIR="/home/tobac/Projekte/diss/parcellations"
 LOG_FILE="/tmp/$(basename ${0})-${RANDOM}.log"
 ulimit -n 4096
@@ -145,13 +146,15 @@ create_skeleton() {
   cp "${0}" "${TARGETDIR}"/
   echo "${0} ${ARGS}" > "${TARGETDIR}"/command.log
   if [ -d design ]; then cp design/* "${TARGETDIR}"/design/; fi
-  cp "${IDFILE}" "${TARGETDIR}"
+  cp "${IDSFILE}" "${TARGETDIR}"
 }
 
 create_temp_dir() {
-  tmpdir="/tmp/hcpsuite-${RANDOM}"
+  while [ -d "${tmpdir}" ] || [ -z "${tmpdir}" ]; do # Ensure temporary dir does not already exist
+    tmpdir="/tmp/hcpsuite-${RANDOM}"
+  done
   mkdir "${tmpdir}"
-  return "${tmpdir}"
+  echo "${tmpdir}"
 }
 
 resolve_palm() {
