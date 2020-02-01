@@ -50,7 +50,7 @@ log() {
 }
 
 parse_common_opts() {
-  while getopts ":en::l::o:" opt ${@}; do
+  while getopts ":en::l::a:" opt ${@}; do
     case ${opt} in
       e)
         # Don't exit on error
@@ -68,7 +68,7 @@ parse_common_opts() {
         LOG_FILE="${OPTARG}"
         touch "${LOG_FILE}" || (echo "ERROR: Unable to create log file ${LOG_FILE}" >&2; exit 1)
         ;;
-      o)
+      a)
         ADDITIONAL_PALM_ARGS="${OPTARGS}"
         ;;
       \?)
@@ -87,22 +87,30 @@ parse_common_opts() {
   shift $((OPTIND - 1))
 }
 
-parse_idsfile() {
-  readonly IDSFILE=$(realpath "${1}")
-  if ! [ -r "${IDSFILE}" ]; then
-    echo "IDs file does not exist or is unreadable."
-    exit 1
-  fi
-  SUBJECTS=$(cat "${IDSFILE}")
-  NSUBJECTS=$(cat "${IDSFILE}" | wc -l) # Pipe to avoid filename output
-}
+get_subjects() {
+  if [ -r "${1}" ]; then
+    readonly IDSFILE=$(realpath "${1}")
+    SUBJECTS=$(cat "${IDSFILE}")
+    NSUBJECTS=$(cat "${IDSFILE}" | wc -l) # Pipe to avoid filename output
+  else
+    NSUBJECTS=0
+    for arg in ${1}; do
+      if [ ${arg} -eq ${arg} ]; then # Test if input is integer
+        SUBJECTS="${SUBJECTS} ${arg}" # Add ID to subject list
+      else
+        echo "ERROR: Argument for subjects is neither a readable file nor does it contain subject IDs."
+        exit 1
+      fi
+      NSUBJECTS=$((NSUBJECTS + 1))
+    done
+      fi
+    }
 
-log_everything() {
-  #set -x
-  exec > >(tee -a ${LOG_FILE} )
-  exec 2> >(tee -a ${LOG_FILE} >&2)
-  exec 3> >(cat >> ${LOG_FILE}) # only write to log file, not to stdout
-}
+  log_everything() {
+    exec > >(tee -a ${LOG_FILE} )
+    exec 2> >(tee -a ${LOG_FILE} >&2)
+    exec 3> >(cat >> ${LOG_FILE}) # &3 -> only write to log file, not to stdout
+  }
 
 timer() {
   # Usage: timer <start|stop|report> <timer_name>

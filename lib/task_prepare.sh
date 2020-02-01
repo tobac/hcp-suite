@@ -72,13 +72,13 @@ print_summary() {
 }
 
 call_pipeline_script() {
-  local TASKDIR="tfMRI_${TASK}"
-  local RUNS="${TASKDIR}_RL@${TASKDIR}_LR" # Runs are separated by '@'
+  TASKDIR="tfMRI_${TASK}"
+  RUNS="${TASKDIR}_RL@${TASKDIR}_LR" # Runs are separated by '@'
   local n=1
 
   for subject in ${SUBJECTS}; do
-    echo -n "Processing subject ${subject} (${n}/${NSUBJECTS})... "                            
-    log ${HCPPIPEDIR}/TaskfMRIAnalysis/TaskfMRIAnalysis.sh \                                   
+    echo -n "Processing subject ${subject} (${n}/${NSUBJECTS})... "
+    log ${HCPPIPEDIR}/TaskfMRIAnalysis/TaskfMRIAnalysis.sh \
       --path="${DATADIR}" \
       --subject="${subject}" \
       --lvl1tasks="${RUNS}" \
@@ -86,8 +86,8 @@ call_pipeline_script() {
       --lvl2task="${TASKDIR}" \
       --lvl2fsf="${TASKDIR}" \
       --lowresmesh="${LOW_RES_MESH}" \
-      --grayordinatesres="${GRAYORDINATES_RESOLUTION}" \                                       
-      --origsmoothingFWHM="${ORIGINAL_SMOOTHING_FWHM}" \                                       
+      --grayordinatesres="${GRAYORDINATES_RESOLUTION}" \
+      --origsmoothingFWHM="${ORIGINAL_SMOOTHING_FWHM}" \
       --confound="${CONFOUND}" \
       --finalsmoothingFWHM="${SMOOTHING_FWHM}" \
       --temporalfilter="${TEMPORAL_FILTER}" \
