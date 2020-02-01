@@ -15,12 +15,6 @@ TEMPORAL_FILTER="200" # Use 2000 for linear detrend, 200 is default for HCP task
 VOLUME_BASED_PROCESSING="NO" # YES or NO. CAUTION: Only use YES if you want unconstrained volumetric blurring of your data, otherwise set to NO for faster, less biased, and more senstive processing (grayordinates results do not use unconstrained volumetric blurring and are always produced).
 REG_NAME="NONE" # Use NONE to use the default surface registration
 
-
-if [ -z "${FSLDIR}" ]; then
-  echo '${FSLDIR} is not set but required.' 1>&2
-  exit 1
-fi
-
 ## from SetUPHCPPipeline.sh
 
 # Let FreeSurfer know what version of FSL to use
@@ -55,3 +49,80 @@ export LC_ALL=C
 export LANGUAGE=C
 #POSIXLY_CORRECT currently gets set by many versions of fsl_sub, unfortunately, but at least don't pass it in if the user has it set in their usual environment
 unset POSIXLY_CORRECT
+
+main() {
+  print_summary
+  timer start; call_pipeline_script; timer stop Prepare_tfMRI
+  timer report
+}
+
+print_summary() {
+  echo
+  echo "-------------------------------------------------------------"
+  echo "Task is ${TASK}."
+  echo "Parcellation is ${PARCELLATION}."
+  echo "IDs file is ${IDSFILE} -> ${NSUBJECTS} subjects"
+  echo "Log file is ${LOG_FILE}."
+  echo "Error handling is ${ERROR_HANDLING}."
+  echo "-------------------------------------------------------------"
+  echo
+  echo -n "Starting in..."
+  for n in $(seq 3 -1 1); do echo -n " ${n}"; sleep 1; done
+  echo
+}
+
+call_pipeline_script() {
+  local TASKDIR="tfMRI_${TASK}"
+  local RUNS="${TASKDIR}_RL@${TASKDIR}_LR" # Runs are separated by '@'
+  local n=1
+
+  for subject in ${SUBJECTS}; do
+    echo -n "Processing subject ${subject} (${n}/${NSUBJECTS})... "                            
+    log ${HCPPIPEDIR}/TaskfMRIAnalysis/TaskfMRIAnalysis.sh \                                   
+      --path="${DATADIR}" \
+      --subject="${subject}" \
+      --lvl1tasks="${RUNS}" \
+      --lvl1fsfs="${RUNS}" \
+      --lvl2task="${TASKDIR}" \
+      --lvl2fsf="${TASKDIR}" \
+      --lowresmesh="${LOW_RES_MESH}" \
+      --grayordinatesres="${GRAYORDINATES_RESOLUTION}" \                                       
+      --origsmoothingFWHM="${ORIGINAL_SMOOTHING_FWHM}" \                                       
+      --confound="${CONFOUND}" \
+      --finalsmoothingFWHM="${SMOOTHING_FWHM}" \
+      --temporalfilter="${TEMPORAL_FILTER}" \
+      --vba="${VOLUME_BASED_PROCESSING}" \
+      --regname="${REG_NAME}" \
+      --parcellation="${PARCELLATION}" \
+      --parcellationfile="${PARCELLATION_FILE}" >&3 # Only log to file not to stdout (stderr -> stderr)
+
+    if [ ${?} -eq 0 ]; then # Only makes sense when exit on error is switched off (-e)
+      echo "OK"
+    else
+      echo "FAILED"
+      failed_subjects="${failed_subjects} ${subject}"
+    fi
+    n=$((n + 1))
+  done
+
+  if [ -n "${failed_subjects}" ]; then
+    echo
+    echo "List of failed subjects:${failed_subjects}" # First character is always space
+    echo
+  else
+    echo
+    echo "All subjects prepared successfully."
+    echo
+  fi
+}
+
+if [ -z "${FSLDIR}" ]; then
+  echo '${FSLDIR} is not set but required.' 1>&2
+  exit 1
+fi
+
+if [ -z ${DEPENDENT} ]; then # Source common.sh if run standalone
+  source "$(dirname ${0})"/common.sh
+fi
+
+main

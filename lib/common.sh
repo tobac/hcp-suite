@@ -2,11 +2,17 @@
 # Functions and options used commonly by HCP Suite scripts
 
 ## Options
+LIB_DIR="$(dirname $(realpath ${0}))/../lib"
 HCP="/home/tobac/HCP"
-DATADIR="${HCP}/S1200"
-export HCPPIPEDIR="${HCP}"/HCPpipelines
+TASK_LIST="SOCIAL MOTOR LANGUAGE WM GAMBLING RELATIONAL EMOTION"
+PARCELLATION_LIST="Glasser Ren RenGlasser"
 PARCELLATION_DIR="/home/tobac/Projekte/diss/parcellations"
 LOG_FILE="/tmp/$(basename ${0})-${RANDOM}.log"
+
+# Different naming convention for the following two variables as external scripts depend on them as well
+export DATADIR="${HCP}/S1200" 
+export HCPPIPEDIR="${HCP}"/HCPpipelines
+
 ulimit -n 4096
 
 ## Functions
