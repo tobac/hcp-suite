@@ -12,6 +12,7 @@ print_summary() {
   echo "-------------------------------------------------------------"
   echo "IDs file is ${IDSFILE} -> ${NSUBJECTS} subjects"
   echo "Table is ${TABLE}."
+  echo "Output file is ${OUTPUT}."
   echo "Log file is ${LOG_FILE}."
   echo "Error handling is ${ERROR_HANDLING}."
   echo "-------------------------------------------------------------"
@@ -29,7 +30,7 @@ addpath ${LIB_DIR}/HCP/share;
 
 ids = load("${IDSFILE}");
 printf("Building exchangeability blocks...\n")
-EB = hcp2blocks("${TABLE}","${OUTFILE_EB}",true,ids);
+EB = hcp2blocks("${TABLE}","${OUTPUT}",true,ids);
 EOF
 }
 

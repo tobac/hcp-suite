@@ -28,7 +28,8 @@ if ("Gender" %in% names(doi)) {
 missing_values <- doi$Subject[which(rowSums(is.na(doi)) > 0)]
 if (length(missing_values) > 0) {
   cat("\n")
-  cat("The following subjects have missing values in of the specified variables.\n")
+  cat("The following subjects have missing values in at least one 
+      of the specified variables.\n")
   print(missing_values)
   cat("Remove those subjects first\n")
   cat("\n")

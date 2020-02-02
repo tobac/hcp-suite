@@ -16,13 +16,19 @@ main() {
   shift
   
   parse_args "${@}"
-  echo "ARGS: ${ARGS}"
   parse_common_opts ${ARGS} # parse_args sets shifted ARGS for getopts
   log_everything
  
   case ${action} in # Check if all required arguments are there
     prepare)
       if [ ${#mandatory_prepare[@]} -ne 3 ]; then usage; exit 1; fi
+      ;;
+    design)
+      echo ${#mandatory_design[@]}
+      if [ ${#mandatory_design[@]} -ne 4 ]; then usage; exit 1; fi
+      ;;
+    eb)
+      if [ ${#mandatory_eb[@]} -ne 3 ]; then usage; exit 1; fi
       ;;
     *)
       exit # FOR NOW
@@ -52,13 +58,17 @@ parse_args() {
       f)
         for file in "${OPTARG}"; do
           if ! [ -r "${file}" ]; then
-            echo "Specified CSV file is not readable."
+            echo "ERROR: Specified CSV file is not readable."
             exit 1
           fi
+          TABLE=$(realpath "${file}")
           TABLES+=($(realpath "${file}"))
         done
-        mandatory_design+=(1)
-        mandatory_eb+=(1)
+        if [ -z ${tables_counted} ]; then
+          mandatory_design+=(1)
+          mandatory_eb+=(1)
+          tables_counted=1
+        fi
         ;;     
       o)
         readonly OUTPUT=$(realpath ${OPTARG})
@@ -98,18 +108,15 @@ parse_args() {
         ;;
       V)
         VARIABLES="${VARIABLES} ${OPTARG}"
-        mandatory_design+=(1)
+        if [ -z ${variables_counted} ]; then mandatory_design+=(1) && variables_counted=1; fi
         ;;
       :)
         echo "ERROR: Invalid option: -${opt} requires an argument." 1>&2
         exit 1
         ;;
-      *)
-        echo "No valid option specified."
-        ;;
     esac
   done
-  shift $((OPTIND - 2))
+  [ ${OPTIND} -gt 1 ] && shift $((OPTIND - 2)) # Prevent error when < 2 arguments are passed
   ARGS="${@}"
 }
 
@@ -125,11 +132,13 @@ usage() {
   echo "      -s <arg>: specify file with subject IDs or a space-separated list of subjects"
   echo "      -o <arg>: specify an output file (e.g. design.mat)"
   echo "      -V <arg>: specify variables (e.g. \"Age_in_Yrs Gender BMI\"; repeatable)"
-  echo "      -f <arg>: specify CSV file containing the specified variables (repeatable; e.g. \"-c restricted.csv -c unrestricted.csv\")"
+  echo "      -f <arg>: specify CSV file containing the specified variables (repeatable; e.g."
+  echo "                \"-f restricted.csv -f unrestricted.csv\"\)"
   echo "    eb"
   echo "      -s <arg>: specify file with subject IDs or a space-separated list of subjects"
   echo "      -o <arg>: specify an output file (e.g. design.mat)"
-  echo "      -f <arg>: specify CSV file containing the specified variables (repeatable; e.g. \"-c restricted.csv -c unrestricted.csv\")"
+  echo "      -f <arg>: specify CSV file containing the specified variables (repeatable; e.g."
+  echo "                \"-f restricted.csv -f unrestricted.csv\"\)"
   echo "    analyse"
   echo "      -s <arg>: specify file with subject IDs or a space-separated list of subjects"
   echo "      -t <arg>: specify a task"

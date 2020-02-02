@@ -3,7 +3,7 @@
 # For standalone use, the following variables need to be defined:
 #IDSFILE="subjects.txt"
 #TABLES=("restricted.csv" "unrestricted.csv") # As array
-#OUTFILE_DESIGN="design.mat"
+#OUTPUT="design.mat"
 #VARIABLES="Age_in_Yrs Gender"
 
 main() {
@@ -21,7 +21,7 @@ print_summary() {
   echo "-------------------------------------------------------------"                         
   echo "IDs file is ${IDSFILE}"
   echo "Data CSV is/are ${TABLES[@]}."
-  echo "Output file is ${OUTFILE_DESIGN}."
+  echo "Output file is ${OUTPUT}."
   echo "Variables are:"
   echo "  ${VARIABLES}"
   echo "Log file is ${LOG_FILE}."
@@ -51,7 +51,7 @@ build_design_with_r() {
   cd "${TMP_DIR}"
   Rscript "${LIB_DIR}"/build_design.r
   cd - >/dev/null
-  cp "${TMP_DIR}"/design.mat "${OUTFILE_DESIGN}"
+  cp "${TMP_DIR}"/design.mat "${OUTPUT}"
 }
 
 main
