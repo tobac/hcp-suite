@@ -24,11 +24,13 @@ main() {
       if [ ${#mandatory_prepare[@]} -ne 3 ]; then usage; exit 1; fi
       ;;
     design)
-      echo ${#mandatory_design[@]}
       if [ ${#mandatory_design[@]} -ne 4 ]; then usage; exit 1; fi
       ;;
     eb)
       if [ ${#mandatory_eb[@]} -ne 3 ]; then usage; exit 1; fi
+      ;;
+    analyse)
+      if [ ${#mandatory_analyse[@]} -ne 5 ]; then usage; exit 1; fi
       ;;
     *)
       exit # FOR NOW
@@ -43,7 +45,7 @@ parse_args() {
   while getopts ":c:d:f:o:p:s:t:V:" opt ${@}; do
     case ${opt} in
       c)
-        if [ ${OPTARG} -eq ${OPTARG} ]; then
+        if [ ${OPTARG} -ne ${OPTARG} ]; then
           echo "Cope contrast must be a number."
           exit 1
         fi

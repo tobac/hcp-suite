@@ -1,0 +1,18 @@
+#!/usr/bin/python3
+
+from roi_connectome import *
+import numpy as np
+
+ts_file, coords_file, labels_file, title, output_dir = usage(sys.argv)
+print("\n\n")
+time_series, time_series_files = load_time_series(ts_file)
+print("Number of time series loaded: {}\n".format(len(time_series)))
+correlation_measure, correlation_matrices = compute_correlations(time_series)
+plot_all(correlation_measure.mean_, title, time_series, coords_file, labels_file, output_dir)
+#plot_all(correlation_measure.mean_, title, time_series, coords_file, labels_file, output_dir, pconn_dummy='/srv/dev-disk-by-label-Data/home/tobac/Projekte/diss/SCA_Ren_connectome/dummy.pconn.nii')
+np.save('/tmp/correlation_measure-mean.npy', correlation_measure.mean_)
+save_whole_sample_nifti(correlation_matrices, output_dir, clean=False)
+save_whole_sample_nifti(correlation_matrices, output_dir, clean=True)
+timer("report")
+print("\nResulting files are located in {}\n".format(output_dir))
+

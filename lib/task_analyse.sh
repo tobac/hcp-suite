@@ -2,6 +2,7 @@
 
 main() {
   check_already_done
+  resolve_palm
   print_summary
   create_skeleton
   timer start; prepare_for_palm; timer stop PALM_preprocessing

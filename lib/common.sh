@@ -95,7 +95,7 @@ get_subjects() {
   else
     NSUBJECTS=0
     for arg in ${1}; do
-      if [ ${arg} -eq ${arg} ]; then # Test if input is integer
+      if [ ${arg} -eq ${arg} ] >/dev/null 2>&1; then # Test if input is integer
         SUBJECTS="${SUBJECTS} ${arg}" # Add ID to subject list
       else
         echo "ERROR: Argument for subjects is neither a readable file nor does it contain subject IDs."
