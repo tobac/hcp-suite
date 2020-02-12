@@ -95,7 +95,7 @@ def save_whole_sample_nifti(matrices_array, output_path, clean=True):
   rearray = np.array(np.zeros((n_rows, n_columns, 1, n_subjects)))
   subject = 0
   while subject < n_subjects:
-    print("Rearranging matrix of subject {} of {}.".format(subject+1, n_subjects))
+    print("Rearranging matrix of subject {}/{} ({} %).".format(subject+1, n_subjects, round((subject+1)/n_subjects*100, 2)), end="\r")
     row = 0
     while row < n_rows:
       column = 0
@@ -104,6 +104,7 @@ def save_whole_sample_nifti(matrices_array, output_path, clean=True):
         column += 1
       row += 1
     subject += 1 
+    sys.stdout.flush # Needed to enable same-line updates on console
   print("\nSaving group NIfTI to {}.".format(fname))
   affine = np.array([[-1., 0., 0., n_rows-1], [ 0., 1., 0., -0.], [0., 0., 1., -0.], [0., 0., 0., 1.]])
   save_matrix(rearray, fname, affine=affine)
