@@ -95,7 +95,7 @@ def save_whole_sample_nifti(matrices_array, output_path, clean=True):
   rearray = np.array(np.zeros((n_rows, n_columns, 1, n_subjects)))
   subject = 0
   while subject < n_subjects:
-    print("Rearranging matrix of subject {} of {}.".format(subject+1, n_subjects))
+    print("Rearranging matrix of subject {}/{} ({} %).".format(subject+1, n_subjects, round((subject+1)/n_subjects*100, 2)), end="\r")
     row = 0
     while row < n_rows:
       column = 0
@@ -104,6 +104,7 @@ def save_whole_sample_nifti(matrices_array, output_path, clean=True):
         column += 1
       row += 1
     subject += 1 
+    sys.stdout.flush # Needed to enable same-line updates on console
   print("\nSaving group NIfTI to {}.".format(fname))
   affine = np.array([[-1., 0., 0., n_rows-1], [ 0., 1., 0., -0.], [0., 0., 1., -0.], [0., 0., 0., 1.]])
   save_matrix(rearray, fname, affine=affine)
@@ -113,7 +114,7 @@ def save_matrix(matrix, fname, affine=np.eye(4)):
   image = nib.nifti1.Nifti1Image(matrix, affine=affine)
   nib.save(image, fname)
 
-def save_individual_matrices(matrices, subjects, output_path):
+def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_dummy=False):
   """Take a list of (correlation) matrices, clean them (we are only interested in the first 
   row and column) and save them as individual NIfTI files"""
   n_matrices=len(matrices)
@@ -121,14 +122,28 @@ def save_individual_matrices(matrices, subjects, output_path):
     print("ERROR: Mismatch between number of matrices ({}) and number of subjects ({}).".format(n_matrices, len(subjects)))
     exit(1)
   n=0
-  clean_matrices = []
+  if clean:
+    clean_matrices = [] # If we want clean matrices, it makes sense to return a list of cleaned matrices
+  if pconn_dummy:
+    img_dummy = nib.load(pconn_dummy)
+
   for matrix in matrices:
-    fname=os.path.join(output_path, "{}.nii".format(subjects[n].rstrip('.txt')))
+    fname=os.path.join(output_dir, "{}.nii".format(subjects[n].rstrip('.txt')))
     print("Saving matrix {}/{} to {} ({} %)".format(n+1, n_matrices, fname, round(((n+1)/n_matrices)*100, 2)))
-    matrix_clean = clean_matrix(matrix)
-    clean_matrices.append(matrix_clean)
-    save_matrix(matrix_clean, fname)
+    if clean:
+      matrix_to_save = clean_matrix(matrix)
+      clean_matrices.append(matrix_clean)
+    else:
+      matrix_to_save = matrix
+    if pconn_dummy:
+      img_new_fname = os.path.join(output_dir, "{}.pconn.nii".format(subjects[n]))
+      img_new = nib.Cifti2Image(matrix, header=img_dummy.get_header(), file_map=img_dummy.file_map)
+      print("\t Saving pconn to {}".format(img_new_fname))
+      img_new.to_filename(img_new_fname)
+    save_matrix(matrix_to_save, fname)
     n += 1
+  if clean:
+    return clean_matrices
 #  fname = os.path.join(output_path, "{}.nii".format(len(clean_matrices)))
 #  print("Saving combined NIfTI file for all matrices (n = {}) to {}.".format(len(clean_matrices), fname))
 #  image = nib.cifti2.Cifti2Image(clean_matrices, affine=np.eye(4))
@@ -168,6 +183,7 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
     img_new_fname = os.path.join(output_dir, 'correlation_measure-mean_.pconn.nii')
     img_dummy = nib.load(pconn_dummy)
     img_new = nib.Cifti2Image(matrix, header=img_dummy.get_header(), file_map=img_dummy.file_map)
+    print("Saving pconn file to {}...".format(img_new_fname))
     img_new.to_filename(img_new_fname)
 
   plot_title = title + ", n = {}".format(len(time_series))
@@ -180,14 +196,13 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
   
   if nan_matrix is False:
     nan_matrix = matrix
-  print("Plotting matrices ...")
   timer("tic")
   np.fill_diagonal(matrix, 0)
-  plotting.plot_matrix(nan_matrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True, vmin=vmin, vmax=vmax)
-  plt.title(plot_title, fontsize=50)
-  fig_fname = "{}/correlation_matrix.svg".format(output_dir)
-  plt.savefig(fig_fname)
-  plt.clf()
+ # plotting.plot_matrix(nan_matrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True, vmin=vmin, vmax=vmax)
+ # plt.title(plot_title, fontsize=50)
+ # fig_fname = "{}/correlation_matrix.svg".format(output_dir)
+ # plt.savefig(fig_fname)
+ # plt.clf()
 
   # We need to introduce this as clean_matrix does something unexpected with np.nan values
   # and plot_connectome specifically cannot deal with this
@@ -195,13 +210,18 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
     print("Cleaning matrix ...")
     mean_roi_matrix = clean_matrix(matrix)
     plot_title = plot_title + " (clean)"
+    fname_clean = "clean"
   else:
     mean_roi_matrix = matrix
-
+    fname_clean = "nonclean"
+  
+  fig_fname = os.path.join(output_dir, "correlation_matrix_{}".format(fname_clean))
+  print("Plotting matrix...")
   plotting.plot_matrix(mean_roi_matrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True, vmin=vmin, vmax=vmax)
   plt.title(plot_title, fontsize=50)
-  fig_fname = "{}/correlation_matrix_clean.svg".format(output_dir)
-  plt.savefig(fig_fname)
+  print("Saving plot to {}.svg..".format(fig_fname))
+  plt.savefig("{}.svg".format(fig_fname))
+  #plt.savefig("{}.png".format(fig_fname), dpi=1080) # PNG export does not seem to work in this case. Who knows..
   timer("toc", name="plotting and saving matrices")
   plt.clf()
   print("Plotting connectome ...")
@@ -210,28 +230,19 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
   # accept figure size like plotting.plot_matrix()
   connectome_figure = plt.figure(figsize=(10, 5)) 
   # plot_connectome does not process np.nan values, we still have to pass np.nan_to_num(matrix) to plot_all function
-  plotting.plot_connectome(np.nan_to_num(mean_roi_matrix), coordinates, figure=connectome_figure, colorbar=True, node_size=30, title=plot_title, edge_vmin=vmin, edge_vmax=vmax)
-  fig_fname = "{}/roi_connectome.svg".format(output_dir)
-  plt.savefig(fig_fname)
-  timer("toc", name="plotting and saving connectome")
-  plt.clf()
-  
-  # Also plot non-clean matrix
-  connectome_figure = plt.figure(figsize=(10, 5)) 
-  plotting.plot_connectome(np.nan_to_num(matrix), coordinates, figure=connectome_figure, colorbar=True, node_size=30, title=plot_title_orig, edge_vmin=vmin, edge_vmax=vmax)
-  fig_fname = "{}/roi_connectome_nonclean.svg".format(output_dir)
-  plt.savefig(fig_fname)
-  # Non-clean SVGs tend to be ressource-hungry; PNG might be more practical
-  fig_fname = "{}/roi_connectome_nonclean.png".format(output_dir)
-  plt.savefig(fig_fname)
+  plotting.plot_connectome(np.nan_to_num(mean_roi_matrix), coordinates, figure=connectome_figure, colorbar=True, 
+                           node_size=30, title=plot_title, edge_vmin=vmin, edge_vmax=vmax)
+  fig_fname = os.path.join(output_dir, "roi_connectome_{}".format(fname_clean))
+  plt.savefig("{}.svg".format(fig_fname))
+  plt.savefig("{}.png".format(fig_fname), dpi=1080)
   timer("toc", name="plotting and saving connectome")
   plt.clf()
 
-  html_fname = "{}/roi_connectome_90.html".format(output_dir)
+  html_fname = os.path.join(output_dir, "roi_connectome_90_{}.html".format(fname_clean))
   print("Constructing interactive HTML connectome...")
   timer("tic")
   web_connectome = plotting.view_connectome(mean_roi_matrix, coordinates, edge_threshold="99%", node_size = 6, symmetric_cmap=False)
-  html_fname = "{}/roi_connectome.html".format(output_dir)
+  html_fname = os.path.join(output_dir, "roi_connectome_{}.html".format(fname_clean))
   web_connectome.save_as_html(html_fname)
   timer("toc", name="plotting and saving HTML connectome")
 

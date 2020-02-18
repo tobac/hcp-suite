@@ -2,6 +2,7 @@
 import sys
 import numpy as np
 import nibabel as nib
+from sklearn.preprocessing import StandardScaler
 import math
 from roi_connectome import *
 import subprocess
@@ -22,12 +23,18 @@ def run_film_gls(input_fname, output_dir, design_fname, contrast_fname):
 
 def prewhiten_cifti(cifti_fname, design_fname, contrast_fname, tmpdir):
     fakenifti_fname = os.path.join(tmpdir.name, "fakenifti.nii.gz")
-    # We could also use singlesubject_cifti_to_nifti(), but we have to save a temporary file anyway for film_gls and wb_command is certainly more robust
+    # We could use singlesubject_cifti_to_fake_nifti(), but we have to save a temporary file anyway for film_gls and wb_command is certainly more robust
     cifti_convert_to_nifti(cifti_fname, fakenifti_fname)
     prewhitened_data_fname = run_film_gls(fakenifti_fname, tmpdir.name, design_fname, contrast_fname)
     return prewhitened_data_fname
 
-def get_ev_timeseries(ids, task, runs, parcellation, ev_file, data_dir='/home/tobac/HCP/S1200/', tr=0.72):
+def demean_and_standardize(array):
+    scaler = StandardScaler()
+    scaler.fit(array)
+    demeaned_and_standardized_array = scaler.transform(array)
+    return demeaned_and_standardized_array
+
+def get_ev_timeseries(ids, task, runs, parcellation, ev_files, data_dir='/home/tobac/HCP/S1200/', tr=0.72):
     ev_data_dict = {}
     n = 1
     for id in ids:
@@ -41,38 +48,49 @@ def get_ev_timeseries(ids, task, runs, parcellation, ev_file, data_dir='/home/to
             feat_dir = os.path.join(run_path, "tfMRI_{}_{}_hp200_s2_level1_{}.feat".format(task, run, parcellation))
             design_fname = os.path.join(feat_dir, "design.mat")
             contrast_fname = os.path.join(feat_dir, "design.con")
-            prewhitened_data_fname = prewhiten_cifti(cifti_fname, design_fname, contrast_fname, tmpdir)
+            
+            # Preprocessing: Prewhiten
+            prewhitened_data_fname = prewhiten_cifti(cifti_fname, design_fname, contrast_fname, tmpdir) 
             nifti_data = get_nimg_data(prewhitened_data_fname)
+            
+            
             # Downstream operations will be easier if we use timepoints:parcels shape instead of parcels:1:1:timepoints
             subject_data = nifti_data[:, 0, 0, :] # Fancy indexing gets rid of the superfluous middle dimensions -> parcels:timepoints
             subject_data = np.swapaxes(subject_data, 0, 1) # Finally swap axes -> timepoints:parcels
             
-            ev_fname = os.path.join(run_path, "EVs", ev_file)
-            evs = np.loadtxt(ev_fname)
-            e = 1
-            for ev in evs:
-                start = math.ceil((ev[0]/tr)+1) # We can afford to lose one timepoint at the beginning, it might even improve SNR
-                end = math.floor((((ev[0]+ev[1])/tr)+1)) # We can afford to lose one timepoint at the end, it might even improve SNR
-                ev_data = subject_data[start:end]
-                print("\tTimepoints in EV part {} of run {}: {}".format(e, run, len(ev_data)))
-                T+=len(ev_data)
-                for ev_data_item in ev_data: # Don't create nested lists, just append each item to the primary list
-                    ev_data_dict[id].append(ev_data_item)
-                e+=1
-            tmpdir.cleanup()
-        print("\tTotal timepoints for subject {} in a total of {} EV parts: {}".format(id, len(evs)*len(runs), T))
+            # Demean and standardize (aka "fit-transform") the data to deal with multiple runs
+            subject_data_std = demean_and_standardize(subject_data)
+            
+            for ev_file in ev_files:
+                ev_fname = os.path.join(run_path, "EVs", ev_file)
+                evs = np.loadtxt(ev_fname)
+                e = 1
+                for ev in evs:
+                    start = math.ceil((ev[0]/tr)+1) # We can afford to lose one timepoint at the beginning, it might even improve SNR
+                    end = math.floor((((ev[0]+ev[1])/tr)+1)) # We can afford to lose one timepoint at the end, it might even improve SNR
+                    ev_data = subject_data_std[start:end]
+                    print("\tTimepoints in EV part {}/{} of {} (run {}): {}".format(e, len(evs), ev_file, run, len(ev_data)))
+                    T+=len(ev_data)
+                    for ev_data_item in ev_data: # Don't create nested lists, just append each item to the primary list
+                        ev_data_dict[id].append(ev_data_item)
+                    e+=1
+            tmpdir.cleanup() # Delete temporary directory
+        print("\t-> Total timepoints for subject {}: {}".format(id, T))
         n+=1
-    return ev_data_dict, subject_data
+    return ev_data_dict
 
 def save_data_dict(data_dict):
     n = 1
     N = len(data_dict)
-    for id, data in ev_data_dict.items():
+    fname_list = []
+    for id, data in data_dict.items():
         fname = "{}.txt".format(id)
         print("Saving text file {}/{} ({} %)".format(n, N, round(n/N*100, 2)), end="\r")
         np.savetxt(fname, data)
+        fname_list.append(fname)
         n+=1
         sys.stdout.flush # Needed to update line in console
+    return fname_list
 
 def singlesubject_cifti_to_fake_nifti(cifti_data):
     newarray = np.array(np.zeros((cifti_data.shape[1], 1, 1, cifti_data.shape[0])))
