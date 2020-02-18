@@ -1,0 +1,28 @@
+#!/usr/bin/Rscript
+# Gets "center of mass" coordinates from a GIfTI file by meaning the coordinates associated with nonzero values
+
+usage <- function(args) {
+if (length(args)==0) {
+  stop(cat("Usage: ", args[0], " <input_file.gii> <surface_file.gii>"), call.=FALSE)
+}
+
+overlay_fname <<- args[1]
+surface_fname <<- args[2]
+}
+
+usage(commandArgs(trailingOnly=TRUE))
+
+suppressMessages(library(gifti));
+library(plot3D);
+
+surface <- readGIfTI(surface_fname);
+overlay <- readGIfTI(overlay_fname);
+
+mapped_values <- gifti_map_value(surface$data$pointset, surface$data$triangle, overlay$data[[1]][,1]); # map values to corresponding coordinates
+
+nonzero_ids <- which(mapped_values$values > 0)
+nonzero_coords <- mapped_values$coords[nonzero_ids, ] # subset all columns (i.e. the entire coordinate triplet) of rows whose number corresponds to nonzero values
+
+nonzero_coords_mean <- colMeans(nonzero_coords) # mean all columns -> mean x y and z coordinates seperately and store resulting means as a triplet
+
+print(nonzero_coords_mean)

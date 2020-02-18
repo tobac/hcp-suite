@@ -1,0 +1,35 @@
+#!/usr/bin/Rscript
+
+usage <- function(args) {
+if (length(args)==0) {
+  stop(cat("Usage: ", args[0], " <input_file.gii> <output_file.png> <L|R>"), call.=FALSE)
+}
+
+input_fname <<- args[1]
+output_fname <<- args[2]
+side <<- args[3]
+}
+
+usage(commandArgs(trailingOnly=TRUE))
+
+script_dir = "/home/corn/Projekte/R/giftiplot"
+
+library(gifti);
+library(plot3D);
+source(file.path(script_dir,"gifti_common.r"));
+
+under_path <- "/tmp";
+
+surface <- readGIfTI(file.path(under_path, paste0("S1200.", side, ".midthickness_MSMAll.32k_fs_LR.surf.gii")));
+
+lims <- c(1,2) # Defines the value boundaries wrt plotting and therefore effectively the colors used; as we plot binary ROIs we only need one color (+ background)
+
+overlay_fname <- file.path(input_fname);
+overlay <- readGIfTI(overlay_fname)
+
+tmp <- gifti.map(surface$data$pointset, surface$data$triangle, overlay$data[[1]][,1]);
+
+png(filename = output_fname, bg = "transparent")
+par(mar=c(0, 0, 0, 0), oma = c(0, 0, 0, 0), xaxs='i', yaxs='i',mfrow=c(2,1))
+message("\nPlotting GIfTI ", input_fname, " to ", output_fname, "\n")
+plot_surface(tmp,"", lims, print.scaling.label=FALSE); # We don't want any labels shown
