@@ -19,7 +19,7 @@ Usage: task.sh <action> [action-specific arguments] [common options]
     design
       -s <arg>: specify file with subject IDs or a space-separated list of subjects
       -o <arg>: specify an output file (e.g. design.mat)
-      -V <arg>: specify variables (e.g. "Age_in_Yrs Gender BMI"; repeatable)
+      -V <arg>: specify variables (e.g. "-V Age_in_Yrs -V Gender -V BMI"; repeatable)
       -f <arg>: specify CSV file containing the specified variables (repeatable; e.g.
                 "-f restricted.csv -f unrestricted.csv")
     eb
