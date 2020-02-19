@@ -53,7 +53,6 @@ def get_ev_timeseries(ids, task, runs, parcellation, ev_files, data_dir='/home/t
             prewhitened_data_fname = prewhiten_cifti(cifti_fname, design_fname, contrast_fname, tmpdir) 
             nifti_data = get_nimg_data(prewhitened_data_fname)
             
-            
             # Downstream operations will be easier if we use timepoints:parcels shape instead of parcels:1:1:timepoints
             subject_data = nifti_data[:, 0, 0, :] # Fancy indexing gets rid of the superfluous middle dimensions -> parcels:timepoints
             subject_data = np.swapaxes(subject_data, 0, 1) # Finally swap axes -> timepoints:parcels
@@ -102,3 +101,24 @@ def singlesubject_cifti_to_fake_nifti(cifti_data):
     affine = [[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 1, 0],[0, 0, 0, 1]]
     img = nib.nifti1.Nifti1Image(newarray, affine=affine)
     return img
+
+def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3,scale=False):
+    data = get_nimg_data(palm_results_fname)
+    adjmatrix = data[:, :, 0, 0]
+    
+    # Plot all p values
+    fig_matrix = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True)
+    fig_connectome = plotting.plot_connectome(adjmatrix, coords, colorbar=True, node_size=30, title=title)
+    web_connectome = plotting.view_connectome(adjmatrix, coords, node_size = 6, symmetric_cmap=False)
+    
+    # Purge matrix, coordinates and labels of subthreshold values
+    adjmatrix[adjmatrix < alpha] = np.nan
+    supthr_indices = np.argwhere(~np.isnan(adjmatrix))
+    labels_clean = ["" if i not in supthr_indices else x for i, x in enumerate(labels)]
+    coords_clean = [[np.nan, np.nan, np.nan] if i not in supthr_indices else x for i, x in enumerate(coords)]
+    
+    fig_matrix_clean = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels_clean, auto_fit=True)
+    fig_connectome_clean = plotting.plot_connectome(np.nan_to_num(adjmatrix), coords_clean, figure=plt.figure(figsize=(10, 5)), colorbar=True, node_size=30, title=title)
+    web_connectome_clean = plotting.view_connectome(adjmatrix, coords_clean, node_size = 6, symmetric_cmap=False)
+    
+    return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean
