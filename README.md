@@ -24,7 +24,7 @@ Usage: task.sh <action> [action-specific arguments] [common options]
                 "-f restricted.csv -f unrestricted.csv")
     eb
       -s <arg>: specify file with subject IDs or a space-separated list of subjects
-      -o <arg>: specify an output file (e.g. design.mat)
+      -o <arg>: specify an output file (e.g. eb.csv)
       -f <arg>: specify CSV file containing the specified variables (repeatable; e.g.
                 "-f restricted.csv -f unrestricted.csv")
     analyse
