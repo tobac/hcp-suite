@@ -63,7 +63,7 @@ def get_ev_timeseries(ids, task, runs, parcellation, ev_files, data_dir='/home/t
             
             for ev_file in ev_files:
                 ev_fname = os.path.join(run_path, "EVs", ev_file)
-                evs = np.loadtxt(ev_fname)
+                evs = np.loadtxt(ev_fname, ndmin=2) # ndmin=2 added for single-line EV txt files
                 e = 1
                 for ev in evs:
                     start = math.ceil((ev[0]/tr)+1) # We can afford to lose one timepoint at the beginning, it might even improve SNR
@@ -90,7 +90,9 @@ def save_data_dict(data_dict):
         fname_list.append(fname)
         n+=1
         sys.stdout.flush # Needed to update line in console
-    return fname_list
+    with open("ts_files", 'w+') as f:
+        for filename in fname_list:
+            f.write("%s\n" % filename)
 
 def singlesubject_cifti_to_fake_nifti(cifti_data):
     newarray = np.array(np.zeros((cifti_data.shape[1], 1, 1, cifti_data.shape[0])))
