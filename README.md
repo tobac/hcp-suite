@@ -21,12 +21,12 @@ Usage: task.sh <action> [action-specific arguments] [common options]
       -o <arg>: specify an output file (e.g. design.mat)
       -V <arg>: specify variables (e.g. "Age_in_Yrs Gender BMI"; repeatable)
       -f <arg>: specify CSV file containing the specified variables (repeatable; e.g.
-                "-f restricted.csv -f unrestricted.csv"\)
+                "-f restricted.csv -f unrestricted.csv")
     eb
       -s <arg>: specify file with subject IDs or a space-separated list of subjects
       -o <arg>: specify an output file (e.g. design.mat)
       -f <arg>: specify CSV file containing the specified variables (repeatable; e.g.
-                "-f restricted.csv -f unrestricted.csv"\)
+                "-f restricted.csv -f unrestricted.csv")
     analyse
       -s <arg>: specify file with subject IDs or a space-separated list of subjects
       -t <arg>: specify a task
