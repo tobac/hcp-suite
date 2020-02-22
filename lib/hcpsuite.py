@@ -15,6 +15,7 @@ from nilearn import plotting
 from matplotlib import pyplot as plt
 from pandas import read_csv
 
+
 global timers
 timers = [] 
 def timer(command, name=""):
@@ -58,6 +59,7 @@ def load_time_series(file_list_fname):
   timer("toc", name="loading all time series")
 
   return time_series, file_list
+
 
 def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_indices=None, coi_fname=None, clean=True):
   """
@@ -121,10 +123,12 @@ def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_
     save_matrix(coi_array, coi_fname, affine=affine)
   timer("toc", name="rearranging matrices and saving whole-sample NIfTI")
 
+  
 def save_matrix(matrix, fname, affine=np.eye(4)):
   image = nib.nifti1.Nifti1Image(matrix, affine=affine)
   nib.save(image, fname)
 
+  
 def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_dummy=False):
   """
   Take a list of (correlation) matrices, optionally clean them (if we are only interested 
@@ -162,6 +166,7 @@ def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_
 #  image = nib.cifti2.Cifti2Image(clean_matrices, affine=np.eye(4))
 #  nib.save(image, fname)
 
+
 def compute_correlations(time_series):
   correlation_measure = ConnectivityMeasure(kind='partial correlation')
   print("Fit-transforming time series...")
@@ -179,12 +184,14 @@ def clean_matrix(matrix):
   tmp_matrix[0, 0] = 0 # Actually not needed anymore due to np.fill_diagional later on
   return tmp_matrix
 
+
 def make_temp_dir():
   tmp_base = "/tmp/roi_connectome"
   if not os.path.exists(tmp_base):
     os.makedirs(tmp_base)
   tmp_dir = mkdtemp(dir=tmp_base)
   return tmp_dir
+
 
 def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, clean=True, vmin=None, vmax=None, nan_matrix=False, pconn_dummy=False):
   # Before anything else, save matrix (i.e. corelation_measure.mean) as binary npy 
@@ -259,6 +266,7 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
   web_connectome.save_as_html(html_fname)
   timer("toc", name="plotting and saving HTML connectome")
 
+
 def clean_palm_results(fname, labels_file, coords_file, alpha=0.95):
   nifti = nib.load(fname)
   data = nifti.get_data()
@@ -303,6 +311,7 @@ def clean_palm_results(fname, labels_file, coords_file, alpha=0.95):
   print("Number of suprathreshold values: {}".format(n_supra_values))
   return palm_matrix, palm_matrix_lite, labels_out_fname, coords_out_fname, n_supra_values
 
+
 def symmetrize(matrix, mirror_lower=False):
   """
   Return a symmetrized matrix.
@@ -316,6 +325,7 @@ def symmetrize(matrix, mirror_lower=False):
     matrix_symmetric = matrix + matrix.T - np.diag(matrix.diagonal())
   return matrix_symmetric
 
+
 def nifti_dim_to_cifti_dim(matrix):
   """Converts cols:rows:1:subjects to subjects:cols:rows"""
   matrix_cifti = matrix[:, :, 0, :] # Get rid of dimension #3
@@ -323,12 +333,14 @@ def nifti_dim_to_cifti_dim(matrix):
   
   return matrix_cifti
 
+
 def cifti_dim_to_nifti_dim(matrix):
   """Converts subjects:cols:rows to cols:rows:1:subjects"""
   matrix_nifti = np.moveaxis(matrix, 0, -1) # Subjects:cols:rows -> cols:rows:subjects
   matrix_nifti = np.expand_dims(matrix_nifti, 2) # Cols:rows:subjects -> Colos:rows:1:subjects
   
   return matrix_nifti
+
 
 def reduce_to_coi(matrices, indices):
     """
@@ -367,31 +379,36 @@ def reduce_to_coi(matrices, indices):
       
     return matrices_clean
   
-  def get_nimg_data(fname):
+def get_nimg_data(fname):
     data = nib.load(fname).get_fdata()
     return data
 
-def cifti_convert_to_nifti(input_fname, output_fname):
+
+def wbc_cifti_convert_to_nifti(input_fname, output_fname):
     subprocess.run(["wb_command", "-cifti-convert", "-to-nifti", input_fname, output_fname], capture_output=True)
-    
+
+
 def run_film_gls(input_fname, output_dir, design_fname, contrast_fname):
     subprocess.run(["film_gls", "--in={}".format(input_fname), "--rn={}".format(os.path.join(output_dir, "film_gls_output")),
                     "--pd={}".format(design_fname), "--con={}".format(contrast_fname), "--thr=1", "--mode=volumetric", "-v"])
     return os.path.join(output_dir, "film_gls_output", "prewhitened_data.nii.gz")
 
+  
 def prewhiten_cifti(cifti_fname, design_fname, contrast_fname, tmpdir):
     fakenifti_fname = os.path.join(tmpdir.name, "fakenifti.nii.gz")
     # We could use singlesubject_cifti_to_fake_nifti(), but we have to save a temporary file anyway for film_gls and wb_command is certainly more robust
-    cifti_convert_to_nifti(cifti_fname, fakenifti_fname)
+    wbc_cifti_convert_to_nifti(cifti_fname, fakenifti_fname)
     prewhitened_data_fname = run_film_gls(fakenifti_fname, tmpdir.name, design_fname, contrast_fname)
     return prewhitened_data_fname
 
+  
 def demean_and_standardize(array):
     scaler = StandardScaler()
     scaler.fit(array)
     demeaned_and_standardized_array = scaler.transform(array)
     return demeaned_and_standardized_array
 
+  
 def get_ev_timeseries(ids, task, runs, parcellation, ev_files, data_dir='/home/tobac/HCP/S1200/', tr=0.72):
     ev_data_dict = {}
     n = 1
@@ -436,6 +453,7 @@ def get_ev_timeseries(ids, task, runs, parcellation, ev_files, data_dir='/home/t
         n+=1
     return ev_data_dict
 
+  
 def save_data_dict(data_dict):
     n = 1
     N = len(data_dict)
@@ -451,32 +469,44 @@ def save_data_dict(data_dict):
         for filename in fname_list:
             f.write("%s\n" % filename)
 
+            
 def singlesubject_cifti_to_fake_nifti(cifti_data):
-    newarray = np.array(np.zeros((cifti_data.shape[1], 1, 1, cifti_data.shape[0])))
-    for idx in range(0, len(cifti_data)): 
-        for idy in range(0, len(cifti_data[idx])): 
-            newarray[idy][0][0][idx] = cifti_data[idx][idy]
+    #newarray = np.array(np.zeros((cifti_data.shape[1], 1, 1, cifti_data.shape[0])))
+    #for idx in range(0, len(cifti_data)): 
+    #    for idy in range(0, len(cifti_data[idx])): 
+    #        newarray[idy][0][0][idx] = cifti_data[idx][idy]
+    newarray = np.transpose(cifti_data) # x:y -> y:x
+    newarray = np.expand_dims(newarray, 1) # y:x -> y:1:x
+    newarray = np.expand_dims(newarray, 1) # y:1:x -> y:1:1:x
     affine = [[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 1, 0],[0, 0, 0, 1]]
     img = nib.nifti1.Nifti1Image(newarray, affine=affine)
+    
     return img
 
-def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3,scale=False):
+  
+def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=False):
     data = get_nimg_data(palm_results_fname)
     adjmatrix = data[:, :, 0, 0]
-    
     # Plot all p values
     fig_matrix = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True)
-    fig_connectome = plotting.plot_connectome(adjmatrix, coords, colorbar=True, node_size=30, title=title)
+    fig_connectome = plotting.plot_connectome(symmetrize(adjmatrix, mirror_lower=True), coords, colorbar=True, node_size=15, title=title)
     web_connectome = plotting.view_connectome(adjmatrix, coords, node_size = 6, symmetric_cmap=False)
     
-    # Purge matrix, coordinates and labels of subthreshold values
-    adjmatrix[adjmatrix < alpha] = np.nan
-    supthr_indices = np.argwhere(~np.isnan(adjmatrix))
-    labels_clean = ["" if i not in supthr_indices else x for i, x in enumerate(labels)]
-    coords_clean = [[np.nan, np.nan, np.nan] if i not in supthr_indices else x for i, x in enumerate(coords)]
-    
-    fig_matrix_clean = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels_clean, auto_fit=True)
-    fig_connectome_clean = plotting.plot_connectome(np.nan_to_num(adjmatrix), coords_clean, figure=plt.figure(figsize=(10, 5)), colorbar=True, node_size=30, title=title)
-    web_connectome_clean = plotting.view_connectome(adjmatrix, coords_clean, node_size = 6, symmetric_cmap=False)
+    # Check if there are any suprathreshold values
+    nsupthr = len(adjmatrix[adjmatrix >= alpha])
+    if nsupthr == 0:
+      print("\nNo values survive the threshold of {}.".format(alpha))
+      fig_matrix_clean, fig_connectome_clean, web_connectome_clean = None, None, None
+    else:
+      print("Number of values to survive the threshold of {}: {}".format(alpha, nsupthr))  
+      # Purge matrix, coordinates and labels of subthreshold values
+      adjmatrix[adjmatrix < alpha] = np.nan
+      supthr_indices = np.argwhere(~np.isnan(adjmatrix))
+      labels_clean = ["" if i not in supthr_indices else x for i, x in enumerate(labels)]
+      coords_clean = [[np.nan, np.nan, np.nan] if i not in supthr_indices else x for i, x in enumerate(coords)]
+
+      fig_matrix_clean = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels_clean, auto_fit=True)
+      fig_connectome_clean = plotting.plot_connectome(symmetrize(np.nan_to_num(adjmatrix), mirror_lower=True), coords_clean, figure=plt.figure(figsize=(10, 5)), colorbar=True, node_size=30, title=title)
+      web_connectome_clean = plotting.view_connectome(adjmatrix, coords_clean, node_size = 6, symmetric_cmap=False)
     
     return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean

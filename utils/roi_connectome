@@ -32,4 +32,3 @@ save_whole_sample_nifti(correlation_matrices, output_dir, clean=False)
 save_whole_sample_nifti(correlation_matrices, output_dir, clean=True)
 timer("report")
 print("\nResulting files are located in {}\n".format(output_dir))
-
