@@ -29,7 +29,7 @@ def usage(argv):
     return ts_file, coords_file, labels_file, title, output_dir
 
 global timers
-timers = []
+timers = [] 
 def timer(command, name=""):
   msg = ""
   if command == "tic":
@@ -72,13 +72,30 @@ def load_time_series(file_list_fname):
 
   return time_series, file_list
 
-def save_whole_sample_nifti(matrices_array, output_path, clean=True):
-  """Take an array of matrices (e.g. output from ConnecitivityMeasure()),
-  rearrange it to build a multi-subject NIfTI, e.g. for 361 ROIs and 999 subjects:
-  (999, 361, 361) -> (361, 361, 1, 999)"""
+def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_indices=None, coi_fname=None, clean=True):
+  """
+  Take an array of matrices (e.g. output from ConnecitivityMeasure()),
+  rearrange it to build a multi-subject NIfTI, e.g. for 361 ROIs and 
+  999 subjects: (999, 361, 361) -> (361, 361, 1, 999). Default filename is
+  output_path/corr_matrices.full.nii.gz and can be overriden with output_file.
+  
+  If coi_indices are supplied, also save a COI matrix at 
+  output_path/coi_matrices.nii.gz (default) or coi_fname.
+  
+  NOTE: This is to be considered an outdated function and kept in only for reference.
+  It's preferable to use cifti_dim_to_nifti_dim() and save_matrix(), which is a _lot_ 
+  faster and cleaner.
+  """
+  
   n_subjects = matrices_array.shape[0]
   n_rows = matrices_array.shape[1]
   n_columns = matrices_array.shape[2]
+  
+  if coi_indices:
+    coi_array = reduce_to_coi(matrices_array, coi_indices)
+    if not coi_fname:
+      coi_fname = os.path.join(output_path, "coi_matrices.nii.gz")
+  
   if clean:
     print("Cleaning matrices before rearranging...")
     clean_matrices_array = np.array(np.empty(matrices_array.shape))
@@ -88,9 +105,11 @@ def save_whole_sample_nifti(matrices_array, output_path, clean=True):
       clean_matrices_array[subject] = matrix_clean
       subject += 1
     matrices_array = clean_matrices_array
-    fname = os.path.join(output_path, "corr_matrices_clean.nii.gz")
+    if not output_fname:
+      output_fname = os.path.join(output_path, "corr_matrices_clean.nii.gz")
   else:
-    fname = os.path.join(output_path, "corr_matrices_full.nii.gz")
+    if not output_fname:
+      output_fname = os.path.join(output_path, "corr_matrices_full.nii.gz")
   timer("tic")
   rearray = np.array(np.zeros((n_rows, n_columns, 1, n_subjects)))
   subject = 0
@@ -105,9 +124,14 @@ def save_whole_sample_nifti(matrices_array, output_path, clean=True):
       row += 1
     subject += 1 
     sys.stdout.flush # Needed to enable same-line updates on console
-  print("\nSaving group NIfTI to {}.".format(fname))
+  print("\nSaving group NIfTI to {}.".format(output_fname))
   affine = np.array([[-1., 0., 0., n_rows-1], [ 0., 1., 0., -0.], [0., 0., 1., -0.], [0., 0., 0., 1.]])
-  save_matrix(rearray, fname, affine=affine)
+  save_matrix(rearray, output_fname, affine=affine)
+  if coi_fname:
+    print("\nCreating COI matrices...")
+    coi_array = reduce_to_coi(rearray, coi_indices)
+    print("Saving COI group NIfTI to {}.".format(coi_fname))
+    save_matrix(coi_array, coi_fname, affine=affine)
   timer("toc", name="rearranging matrices and saving whole-sample NIfTI")
 
 def save_matrix(matrix, fname, affine=np.eye(4)):
@@ -290,5 +314,66 @@ def clean_palm_results(fname, labels_file, coords_file, alpha=0.95):
   print("Number of suprathreshold values: {}".format(n_supra_values))
   return palm_matrix, palm_matrix_lite, labels_out_fname, coords_out_fname, n_supra_values
 
-def symmetrize(matrix):
-  return matrix + matrix.T - np.diag(matrix.diagonal())
+def symmetrize(matrix, mirror_lower=False):
+  """
+  Return a symmetrized matrix.
+  
+  If mirror_lower is true, mirror the lower triangle to the upper triangle.
+  This method works with matrices containg nan values, too.
+  """
+  if mirror_lower:
+    matrix_symmetric = np.tril(matrix) + np.triu(matrix.T, 1)
+  else:
+    matrix_symmetric = matrix + matrix.T - np.diag(matrix.diagonal())
+  return matrix_symmetric
+
+def nifti_dim_to_cifti_dim(matrix):
+  """Converts cols:rows:1:subjects to subjects:cols:rows"""
+  matrix_cifti = matrix[:, :, 0, :] # Get rid of dimension #3
+  matrix_cifti = np.moveaxis(matrix_cifti, -1, 0) # Put last dimension first
+  
+  return matrix_cifti
+
+def cifti_dim_to_nifti_dim(matrix):
+  """Converts subjects:cols:rows to cols:rows:1:subjects"""
+  matrix_nifti = np.moveaxis(matrix, 0, -1) # Subjects:cols:rows -> cols:rows:subjects
+  matrix_nifti = np.expand_dims(matrix_nifti, 2) # Cols:rows:subjects -> Colos:rows:1:subjects
+  
+  return matrix_nifti
+
+def reduce_to_coi(matrices, indices):
+    """
+    Reduce the number of correlations in a matrices array to correlations of interest (COI).
+    This is, for instance, useful to reduce the number of statistical tests we would
+    have to correct for later on.
+    
+    Input: matrices to be "cleaned" and an iterable object of row/column indices to be preserved
+    Returns: reduced matrices with all non-interesting values replaced with np.nan
+    """
+    from matplotlib.cbook import flatten
+    
+    # Leave the original matrix untouched
+    matrices_clean = matrices.copy()
+    
+    indices_list = [] # Create dummy list to make iteration fool-proof
+    indices_list.append(indices)
+    indices_flattened = list(flatten(indices_list)) # Unnest nested iterables
+    ndim = len(matrices.shape)
+    nrow = matrices.shape[1] # Stricly speaking, this would be ncol for NIfTI style
+    
+    if ndim == 3: # Assume subjects:columns:rows ("CIFTI style")
+      print("Assuming CIFTI style with {} rows.".format(nrow))
+      for idx in range(0, nrow):
+        matrices_clean[:, idx, idx+1:] = np.nan # Nan everything above the diagonal
+        if idx not in indices_flattened:
+          matrices_clean[:, :, idx] = np.nan # Nan everything except our COIs
+    elif ndim == 4: # Assume columns:rows:1:subjects ("NIfTI style")
+      print("Assuming NIfTI style with {} cols".format(nrow))
+      for idx in range(0, nrow):
+        matrices_clean[idx, idx+1:, :, :] = np.nan # Nan everything above the diagonal
+        if idx not in indices_flattened:
+          matrices_clean[:, idx, :, :] = np.nan # Nan everything else except our COIs      
+    else:
+      raise ValueError("Number of dimensions of input matrix must be either 3 or 4.")
+      
+    return matrices_clean
