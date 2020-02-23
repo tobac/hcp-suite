@@ -60,6 +60,9 @@ def load_time_series(file_list_fname):
 
   return time_series, file_list
 
+def save_list_to_file(alist, fname):
+  with open(fname, 'w') as f:
+    f.write("\n".join(alist))
 
 def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_indices=None, coi_fname=None, clean=True):
   """
@@ -471,6 +474,9 @@ def save_data_dict(data_dict):
 
             
 def singlesubject_cifti_to_fake_nifti(cifti_data):
+    """
+    Take a CIFTI-style data array and return it as a fake-NIfTI style one.
+    """
     #newarray = np.array(np.zeros((cifti_data.shape[1], 1, 1, cifti_data.shape[0])))
     #for idx in range(0, len(cifti_data)): 
     #    for idy in range(0, len(cifti_data[idx])): 
@@ -484,29 +490,87 @@ def singlesubject_cifti_to_fake_nifti(cifti_data):
     return img
 
   
-def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=False):
+def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=False, n_highest_values=5, output_dir=None):
+    """
+    Take a PALM results file and plot its suprathreshold values (default threshold 
+    value: alpha=1.3) in a correlation matrix and as a connectome visualisation.
+    
+    CAVE: plot_palm_new() expects log p values or any other form of "higher is better"
+    """
+    info = [] # This list holds all the informational messages we may later write into info.txt
     data = get_nimg_data(palm_results_fname)
     adjmatrix = data[:, :, 0, 0]
     # Plot all p values
-    fig_matrix = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True)
+    fig_matrix = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True).figure
     fig_connectome = plotting.plot_connectome(symmetrize(adjmatrix, mirror_lower=True), coords, colorbar=True, node_size=15, title=title)
     web_connectome = plotting.view_connectome(adjmatrix, coords, node_size = 6, symmetric_cmap=False)
     
     # Check if there are any suprathreshold values
     nsupthr = len(adjmatrix[adjmatrix >= alpha])
     if nsupthr == 0:
-      print("\nNo values survive the threshold of {}.".format(alpha))
+      msg = "\nNo values survive the threshold of {}.".format(alpha)
+      info.append(msg)
+      print(msg)
       fig_matrix_clean, fig_connectome_clean, web_connectome_clean = None, None, None
+      labels_clean = ""
+      coords_clean = ""
     else:
-      print("Number of values to survive the threshold of {}: {}".format(alpha, nsupthr))  
+      msg = "Number of values to survive the threshold of {}: {}".format(alpha, nsupthr)
+      info.append(msg)
+      print(msg)
       # Purge matrix, coordinates and labels of subthreshold values
-      adjmatrix[adjmatrix < alpha] = np.nan
-      supthr_indices = np.argwhere(~np.isnan(adjmatrix))
+      adjmatrix_clean = adjmatrix.copy()
+      adjmatrix_clean[adjmatrix_clean < alpha] = np.nan
+      supthr_indices = np.argwhere(~np.isnan(adjmatrix_clean))
       labels_clean = ["" if i not in supthr_indices else x for i, x in enumerate(labels)]
       coords_clean = [[np.nan, np.nan, np.nan] if i not in supthr_indices else x for i, x in enumerate(coords)]
 
-      fig_matrix_clean = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels_clean, auto_fit=True)
-      fig_connectome_clean = plotting.plot_connectome(symmetrize(np.nan_to_num(adjmatrix), mirror_lower=True), coords_clean, figure=plt.figure(figsize=(10, 5)), colorbar=True, node_size=30, title=title)
-      web_connectome_clean = plotting.view_connectome(adjmatrix, coords_clean, node_size = 6, symmetric_cmap=False)
+      fig_matrix_clean = plotting.plot_matrix(adjmatrix_clean, colorbar=True, figure=(40, 40), labels=labels_clean, auto_fit=True).figure
+      fig_connectome_clean = plotting.plot_connectome(symmetrize(np.nan_to_num(adjmatrix_clean), mirror_lower=True), coords_clean, figure=plt.figure(figsize=(10, 5)), colorbar=True, node_size=30, title=title)
+      web_connectome_clean = plotting.view_connectome(adjmatrix_clean, coords_clean, node_size = 6, symmetric_cmap=False)
     
-    return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean
+    highest_indices = get_largest_indices(adjmatrix, n_highest_values)
+    msg = "{} highest values: {}".format(n_highest_values, adjmatrix[highest_indices])
+    info.append(msg)
+    print(msg)
+    
+    if output_dir:
+      print("Saving plots to {}...".format(output_dir))
+      fig_matrix.savefig(os.path.join(output_dir, "matrix.svg"))
+      if fig_matrix_clean:
+        fig_matrix_clean.savefig(os.path.join(output_dir, "matrix_clean.svg"))
+      fig_connectome.savefig(os.path.join(output_dir, "connectome.svg"))
+      if fig_connectome_clean:
+        fig_connectome_clean.savefig(os.path.join(output_dir, "connectome_clean.svg"))
+      web_connectome.save_as_html(os.path.join(output_dir, "web_connectome.html"))
+      if web_connectome_clean:
+        web_connectome_clean.save_as_html(os.path.join(output_dir, "web_connectome_clean.html"))
+      
+      info.append("")
+      info.append("Top 5 connections according to p value:")
+      info.append("Node A <-> Node B: p value")
+      for i in range(5):
+        x = highest_indices[0][i]
+        y = highest_indices[1][i]
+        msg = "{} <-> {}: {}".format(x+1, y+1, adjmatrix[x,y])
+        info.append(msg)
+      save_list_to_file(info, os.path.join(output_dir, "info.txt"))
+      
+      if labels_clean:
+        save_list_to_file(labels_clean, os.path.join(output_dir, "labels_clean"))
+        np.savetxt(os.path.join(output_dir, "coords_clean"), coords_clean)
+    
+    return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean, labels_clean, coords_clean
+  
+def get_largest_indices(array, n):
+    """
+    Return the indices of the n largest values from an array.
+    Multidimensional arrays are flattened and the indices unravelled.
+    
+    From https://stackoverflow.com/a/38884051
+    """
+    array_flattened = array.flatten()
+    indices = np.argpartition(array_flattened, -n)[-n:]
+    indices = indices[np.argsort(-array_flattened[indices])]
+    
+    return np.unravel_index(indices, array.shape)
