@@ -38,7 +38,7 @@ def timer(command, name=""):
 
 def create_dir_if_not_exist(directory):
   if not os.path.exists(directory):
-    print("Creating {}...".format(directory))
+    print("Creating directory {}...".format(directory))
     os.makedirs(directory)
 
 
@@ -508,7 +508,7 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
     
     Use lower_is_better=True if you use standard p values and not log p or 1-p
     """
-    info = [] # This list holds all the informational messages we may later write into info.txt
+    info = ["File name: {}".format(fname)] # This list holds all the informational messages we may later write into info.txt
     data = get_nimg_data(palm_results_fname)
     adjmatrix = data[:, :, 0, 0]
     # Plot all p values
@@ -569,8 +569,8 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
       info.append("Top 5 connections according to p value:")
       info.append("Node A <-> Node B: p value")
       for i in range(5):
-        x = highest_indices[0][i]
-        y = highest_indices[1][i]
+        x = best_indices[0][i]
+        y = best_indices[1][i]
         msg = "{} <-> {}: {}".format(x+1, y+1, adjmatrix[x,y])
         info.append(msg)
       save_list_to_file(info, os.path.join(output_dir, "info.txt"))
