@@ -36,6 +36,12 @@ def timer(command, name=""):
     print("------------------------------------------------------------\n")
 
 
+def create_dir_if_not_exist(directory):
+  if not os.path.exists(directory):
+    print("Creating {}...".format(directory))
+    os.makedirs(directory)
+
+
 def load_list_from_file(file_name):
   list = [line.rstrip('\n') for line in open(file_name)]
   return list
@@ -60,10 +66,12 @@ def load_time_series(file_list_fname):
 
   return time_series, file_list
 
+
 def save_list_to_file(alist, fname):
   with open(fname, 'w') as f:
     f.write("\n".join(alist))
 
+    
 def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_indices=None, coi_fname=None, clean=True):
   """
   Take an array of matrices (e.g. output from ConnecitivityMeasure()),
@@ -118,6 +126,7 @@ def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_
     sys.stdout.flush # Needed to enable same-line updates on console
   print("\nSaving group NIfTI to {}.".format(output_fname))
   affine = np.array([[-1., 0., 0., n_rows-1], [ 0., 1., 0., -0.], [0., 0., 1., -0.], [0., 0., 0., 1.]])
+  create_dir_if_not_exist(output_path)
   save_matrix(rearray, output_fname, affine=affine)
   if coi_fname:
     print("\nCreating COI matrices...")
@@ -129,6 +138,7 @@ def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_
   
 def save_matrix(matrix, fname, affine=np.eye(4)):
   image = nib.nifti1.Nifti1Image(matrix, affine=affine)
+  create_dir_if_not_exist(os.path.dirname(fname))
   nib.save(image, fname)
 
   
@@ -146,7 +156,7 @@ def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_
     clean_matrices = [] # If we want clean matrices, it makes sense to return a list of cleaned matrices
   if pconn_dummy:
     img_dummy = nib.load(pconn_dummy)
-
+  create_dir_if_not_exist(output_dir)
   for matrix in matrices:
     fname=os.path.join(output_dir, "{}.nii".format(subjects[n].rstrip('.txt')))
     print("Saving matrix {}/{} to {} ({} %)".format(n+1, n_matrices, fname, round(((n+1)/n_matrices)*100, 2)))
@@ -199,6 +209,7 @@ def make_temp_dir():
 def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, clean=True, vmin=None, vmax=None, nan_matrix=False, pconn_dummy=False):
   # Before anything else, save matrix (i.e. corelation_measure.mean) as binary npy 
   # file (e.g. to manually create pconn CIFTIs)
+  create_dir_if_not_exist(output_dir)
   matrix_fname = os.path.join(output_dir, 'correlation_measure-mean_.npy') 
   np.save(matrix_fname, matrix)
   # Build pconn file
@@ -242,7 +253,7 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
   print("Plotting matrix...")
   plotting.plot_matrix(mean_roi_matrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True, vmin=vmin, vmax=vmax)
   plt.title(plot_title, fontsize=50)
-  print("Saving plot to {}.svg..".format(fig_fname))
+  print("Saving plot to {}.svg...".format(fig_fname))
   plt.savefig("{}.svg".format(fig_fname))
   #plt.savefig("{}.png".format(fig_fname), dpi=1080) # PNG export does not seem to work in this case. Who knows..
   timer("toc", name="plotting and saving matrices")
@@ -490,12 +501,12 @@ def singlesubject_cifti_to_fake_nifti(cifti_data):
     return img
 
   
-def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=False, n_highest_values=5, output_dir=None):
+def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=False, n_best_values=5, lower_is_better=False, output_dir=None):
     """
     Take a PALM results file and plot its suprathreshold values (default threshold 
     value: alpha=1.3) in a correlation matrix and as a connectome visualisation.
     
-    CAVE: plot_palm_new() expects log p values or any other form of "higher is better"
+    Use lower_is_better=True if you use standard p values and not log p or 1-p
     """
     info = [] # This list holds all the informational messages we may later write into info.txt
     data = get_nimg_data(palm_results_fname)
@@ -505,8 +516,17 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
     fig_connectome = plotting.plot_connectome(symmetrize(adjmatrix, mirror_lower=True), coords, colorbar=True, node_size=15, title=title)
     web_connectome = plotting.view_connectome(adjmatrix, coords, node_size = 6, symmetric_cmap=False)
     
-    # Check if there are any suprathreshold values
-    nsupthr = len(adjmatrix[adjmatrix >= alpha])
+    # Get highest/lowest indices and check if there are any suprathreshold values
+    if lower_is_better:
+      best_indices = get_extreme_indices(adjmatrix, n_best_values, get_smallest=True)
+      adjmatrix[adjmatrix == 0] = np.nan # See get_extreme_indices() for rationale
+      nsupthr = len(adjmatrix[adjmatrix <= alpha])
+    else:
+      best_indices = get_extreme_indices(adjmatrix, n_best_values)
+      nsupthr = len(adjmatrix[adjmatrix >= alpha])
+    msg = "{} best values: {}".format(n_best_values, adjmatrix[best_indices])
+    info.append(msg)
+    print(msg)
     if nsupthr == 0:
       msg = "\nNo values survive the threshold of {}.".format(alpha)
       info.append(msg)
@@ -520,7 +540,10 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
       print(msg)
       # Purge matrix, coordinates and labels of subthreshold values
       adjmatrix_clean = adjmatrix.copy()
-      adjmatrix_clean[adjmatrix_clean < alpha] = np.nan
+      if lower_is_better:
+        adjmatrix_clean[adjmatrix > alpha] = np.nan
+      else:
+        adjmatrix_clean[adjmatrix_clean < alpha] = np.nan
       supthr_indices = np.argwhere(~np.isnan(adjmatrix_clean))
       labels_clean = ["" if i not in supthr_indices else x for i, x in enumerate(labels)]
       coords_clean = [[np.nan, np.nan, np.nan] if i not in supthr_indices else x for i, x in enumerate(coords)]
@@ -529,12 +552,8 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
       fig_connectome_clean = plotting.plot_connectome(symmetrize(np.nan_to_num(adjmatrix_clean), mirror_lower=True), coords_clean, figure=plt.figure(figsize=(10, 5)), colorbar=True, node_size=30, title=title)
       web_connectome_clean = plotting.view_connectome(adjmatrix_clean, coords_clean, node_size = 6, symmetric_cmap=False)
     
-    highest_indices = get_largest_indices(adjmatrix, n_highest_values)
-    msg = "{} highest values: {}".format(n_highest_values, adjmatrix[highest_indices])
-    info.append(msg)
-    print(msg)
-    
     if output_dir:
+      create_dir_if_not_exist(output_dir)
       print("Saving plots to {}...".format(output_dir))
       fig_matrix.savefig(os.path.join(output_dir, "matrix.svg"))
       if fig_matrix_clean:
@@ -561,16 +580,25 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
         np.savetxt(os.path.join(output_dir, "coords_clean"), coords_clean)
     
     return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean, labels_clean, coords_clean
-  
-def get_largest_indices(array, n):
+
+
+def get_extreme_indices(array, n, get_smallest=False):
     """
-    Return the indices of the n largest values from an array.
+    Return the indices of the n highest/lowest values from an array.
     Multidimensional arrays are flattened and the indices unravelled.
     
     From https://stackoverflow.com/a/38884051
     """
     array_flattened = array.flatten()
-    indices = np.argpartition(array_flattened, -n)[-n:]
-    indices = indices[np.argsort(-array_flattened[indices])]
+    if get_smallest:
+      # Here we need to remove all 0 values otherwise they tend to be the smallest
+      # We will leave negative values alone as some software will use negative p values
+      # for e.g. inverse contrasts
+      array_flattened[array_flattened == 0] = np.nan
+      indices = np.argpartition(array_flattened, n)[:n]
+      indices = indices[np.argsort(array_flattened[indices])]
+    else:
+      indices = np.argpartition(array_flattened, -n)[-n:]
+      indices = indices[np.argsort(-array_flattened[indices])]
     
     return np.unravel_index(indices, array.shape)
