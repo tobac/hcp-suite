@@ -42,6 +42,8 @@ outfile = "design.mat"
 cat("Writing design matrix...\n")
 write(paste("/NumWaves", ncol(doi)), outfile)
 write(paste("/NumPoints", nrow(doi)), outfile, append = TRUE)
+ppheights <- sapply(doi, max) - sapply(doi, min)
+write(paste("/PPHeights", paste(unlist(ppheights), collapse= " ")), outfile, append = TRUE)
 write("", outfile, append = TRUE)
 write("/Matrix", outfile, append = TRUE)
 #options(scipen = -10) # We want scientific notation in our outfile

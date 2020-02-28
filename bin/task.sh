@@ -42,7 +42,7 @@ main() {
 
 parse_args() {
   local OPTIND opt OPTARG
-  while getopts ":c:d:f:o:p:s:t:V:" opt ${@}; do
+  while getopts ":c:d:f:o:p:s:t:V:" opt "${@}"; do
     case ${opt} in
       c)
         if [ ${OPTARG} -ne ${OPTARG} ]; then

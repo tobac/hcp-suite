@@ -508,7 +508,7 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
     
     Use lower_is_better=True if you use standard p values and not log p or 1-p
     """
-    info = ["File name: {}".format(fname)] # This list holds all the informational messages we may later write into info.txt
+    info = ["File name: {}".format(palm_results_fname)] # This list holds all the informational messages we may later write into info.txt
     data = get_nimg_data(palm_results_fname)
     adjmatrix = data[:, :, 0, 0]
     # Plot all p values
