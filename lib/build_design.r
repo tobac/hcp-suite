@@ -1,3 +1,12 @@
+ids <- scan("ids.file")
+vars <- read.delim("vars.file")
+vars <- as.character(read.table("vars.file", as.is = TRUE))
+vars <- c(vars, "Subject")
+# If you supply a string of space-separated variables instead of a file containing
+# that string, conversion into a character vector of length n involves strsplit and thus
+# uncommenting the following line
+#vars <- strsplit(vars, split = " ")[[1]]
+
 data1 <- read.csv("data1.csv")
 
 if (file.exists("data2.csv")) {
@@ -9,14 +18,12 @@ if (file.exists("data2.csv")) {
   merged <- data1
 }
 
-ids <- scan("ids.file")
-vars <- read.delim("vars.file")
-vars <- as.character(read.table("vars.file", as.is = TRUE))
-vars <- c(vars, "Subject")
-# If you supply a string of space-separated variables instead of a file containing
-# that string, conversion into a character vector of length n involves strsplit and thus
-# uncommenting the following line
-#vars <- strsplit(vars, split = " ")[[1]]
+if (file.exists("groups")) {
+  groups <- scan("groups", what = "")
+} else {
+  # If no groups are specified, create one group spanning the entire sample
+  groups <- paste("1:", ncol(merged)) 
+}
 
 cat("Picking variables and subjects...\n")
 doi <- merged[merged$Subject %in% ids, ] # First get IDs of interest
@@ -35,8 +42,16 @@ if (length(missing_values) > 0) {
   cat("\n")
   stop()
 }
+
 doi$Subject <- NULL # Remove Subject column
-doi$Group <- 1 # Add group column
+
+# Add group column(s)
+for (idx in 1:length(groups)) { 
+  colname <- paste("Z", idx, sep = "")
+  doi[, as.character(colname)] <- 0 # Add group column and exclude everyone
+  group <- strsplit(groups[idx], ":")[[1]][1]:strsplit(groups[idx], ":")[[1]][2]
+  doi[group, as.character(colname)] <- 1 # Include members only
+}
 
 outfile = "design.mat"
 cat("Writing design matrix...\n")

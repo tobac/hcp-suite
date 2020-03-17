@@ -42,7 +42,7 @@ main() {
 
 parse_args() {
   local OPTIND opt OPTARG
-  while getopts ":c:d:f:o:p:s:t:V:" opt "${@}"; do
+  while getopts ":c:d:f:g:o:p:s:t:V:" opt "${@}"; do
     case ${opt} in
       c)
         if [ ${OPTARG} -ne ${OPTARG} ]; then
@@ -71,7 +71,11 @@ parse_args() {
           mandatory_eb+=(1)
           tables_counted=1
         fi
-        ;;     
+        ;;
+      g)
+        groups+=(${OPTARG})
+        if [ -z ${variables_or_groups_counted} ]; then mandatory_design+=(1) && variables_or_groups_counted=1; fi
+        ;;
       o)
         readonly OUTPUT=$(realpath ${OPTARG})
         mandatory_design+=(1)
@@ -110,7 +114,7 @@ parse_args() {
         ;;
       V)
         VARIABLES="${VARIABLES} ${OPTARG}"
-        if [ -z ${variables_counted} ]; then mandatory_design+=(1) && variables_counted=1; fi
+        if [ -z ${variables_or_groups_counted} ]; then mandatory_design+=(1) && variables_or_groups_counted=1; fi
         ;;
       :)
         echo "ERROR: Invalid option: -${opt} requires an argument." 1>&2
@@ -134,6 +138,7 @@ usage() {
   echo "      -s <arg>: specify file with subject IDs or a space-separated list of subjects"
   echo "      -o <arg>: specify an output file (e.g. design.mat)"
   echo "      -V <arg>: specify variables (e.g. \"-V Age_in_Yrs -V Gender -V BMI\"; repeatable)"
+  echo "      -g <arg>: specify groups (e.g. \"1:432\": group the first 432 subjects)"
   echo "      -f <arg>: specify CSV file containing the specified variables (repeatable; e.g."
   echo "                \"-f restricted.csv -f unrestricted.csv\")"
   echo "    eb"

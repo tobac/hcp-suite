@@ -5,6 +5,7 @@
 #TABLES=("restricted.csv" "unrestricted.csv") # As array
 #OUTPUT="design.mat"
 #VARIABLES="Age_in_Yrs Gender"
+#groups=(1:200 201:300) -> optionally define groups
 
 main() {
   print_summary
@@ -24,6 +25,7 @@ print_summary() {
   echo "Output file is ${OUTPUT}."
   echo "Variables are:"
   echo "  ${VARIABLES}"
+  echo "Groups are: ${groups[@]}"
   echo "Log file is ${LOG_FILE}."
   echo "Error handling is ${ERROR_HANDLING}."
   echo "-------------------------------------------------------------"                         
@@ -46,6 +48,9 @@ build_design_with_r() {
   cp "${TABLES[0]}" "${TMP_DIR}"/data1.csv
   if [ -n "${TABLES[1]}" ]; then
     cp "${TABLES[1]}" "${TMP_DIR}"/data2.csv
+  fi
+  if [ -n "${groups}" ]; then
+    echo "${groups[@]}" > "${TMP_DIR}"/groups
   fi
 
   cd "${TMP_DIR}"
