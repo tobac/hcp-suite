@@ -205,8 +205,12 @@ def make_temp_dir():
   tmp_dir = mkdtemp(dir=tmp_base)
   return tmp_dir
 
+def save_pconn(data, pconn_dummy, output_file):
+  img_dummy = nib.load(pconn_dummy)
+  img_new = nib.Cifti2Image(data, header=img_dummy.get_header(), file_map=img_dummy.file_map)
+  img_new.to_filename(output_file)
 
-def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, clean=True, vmin=None, vmax=None, nan_matrix=False, pconn_dummy=False):
+def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, clean=True, vmin=None, vmax=None, nan_matrix=False, pconn_dummy=False, pconn_fname='correlation_measure-mean_.pconn.nii'):
   # Before anything else, save matrix (i.e. corelation_measure.mean) as binary npy 
   # file (e.g. to manually create pconn CIFTIs)
   create_dir_if_not_exist(output_dir)
@@ -214,11 +218,9 @@ def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, c
   np.save(matrix_fname, matrix)
   # Build pconn file
   if pconn_dummy:
-    img_new_fname = os.path.join(output_dir, 'correlation_measure-mean_.pconn.nii')
-    img_dummy = nib.load(pconn_dummy)
-    img_new = nib.Cifti2Image(matrix, header=img_dummy.get_header(), file_map=img_dummy.file_map)
-    print("Saving pconn file to {}...".format(img_new_fname))
-    img_new.to_filename(img_new_fname)
+    pconn_fname = os.path.join(output_dir, pconn_fname)
+    print("Saving pconn file to {}...".format(pconn_fname))
+    save_pconn(matrix, pconn_dummy, pconn_fname)
 
   plot_title = title + ", n = {}".format(len(time_series))
   plot_title_orig = plot_title # We might modify plot_title later on
@@ -500,16 +502,31 @@ def singlesubject_cifti_to_fake_nifti(cifti_data):
     
     return img
 
+def subtract_arrays(positive, negative):
+    """Takes two NumPy arrays 'positive' and 'negative' and returns the following: 
+    'positive - negative'. This was created to attain a combined PALM results file,
+    where one contrast's p values are negative."""
+    if isinstance(positive, str):
+      positive = get_nimg_data(positive)
+    if isinstance(negative, str):
+      negative = get_nimg_data(negative)
+    result = positive - negative
+    return result
   
-def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=False, n_best_values=5, lower_is_better=False, output_dir=None):
+def plot_palm_new(palm_results, title, coords, labels, alpha=1.3, scale=False, n_best_values=5, lower_is_better=False, output_dir=None, pconn_dummy=False, pconn_fname='connectome.pconn.nii'):
     """
-    Take a PALM results file and plot its suprathreshold values (default threshold 
-    value: alpha=1.3) in a correlation matrix and as a connectome visualisation.
+    Take PALM results (file or NumPy arraay) and plot its suprathreshold values (default 
+    threshold value: alpha=1.3) in a correlation matrix and as a connectome visualisation.
     
     Use lower_is_better=True if you use standard p values and not log p or 1-p
     """
-    info = ["File name: {}".format(palm_results_fname)] # This list holds all the informational messages we may later write into info.txt
-    data = get_nimg_data(palm_results_fname)
+    info = ["PALM results: {}".format(palm_results)] # This list holds all the informational messages we may later write into info.txt
+    if isinstance(palm_results, str):
+      # We assume the argument is a filename if it's a string
+      data = get_nimg_data(palm_results)
+    else:
+      data = palm_results
+    # Get rid of superfluous dimensions
     adjmatrix = data[:, :, 0, 0]
     # Plot all p values
     fig_matrix = plotting.plot_matrix(adjmatrix, colorbar=True, figure=(40, 40), labels=labels, auto_fit=True).figure
@@ -518,12 +535,12 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
     
     # Get highest/lowest indices and check if there are any suprathreshold values
     if lower_is_better:
-      best_indices = get_extreme_indices(adjmatrix, n_best_values, get_smallest=True)
+      best_indices = get_extreme_indices(abs(adjmatrix), n_best_values, get_smallest=True)
       adjmatrix[adjmatrix == 0] = np.nan # See get_extreme_indices() for rationale
-      nsupthr = len(adjmatrix[adjmatrix <= alpha])
+      nsupthr = len(adjmatrix[abs(adjmatrix) <= alpha])
     else:
-      best_indices = get_extreme_indices(adjmatrix, n_best_values)
-      nsupthr = len(adjmatrix[adjmatrix >= alpha])
+      best_indices = get_extreme_indices(abs(adjmatrix), n_best_values)
+      nsupthr = len(adjmatrix[abs(adjmatrix) >= alpha])
     msg = "{} best values: {}".format(n_best_values, adjmatrix[best_indices])
     info.append(msg)
     print(msg)
@@ -541,9 +558,9 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
       # Purge matrix, coordinates and labels of subthreshold values
       adjmatrix_clean = adjmatrix.copy()
       if lower_is_better:
-        adjmatrix_clean[adjmatrix > alpha] = np.nan
+        adjmatrix_clean[abs(adjmatrix) > alpha] = np.nan
       else:
-        adjmatrix_clean[adjmatrix_clean < alpha] = np.nan
+        adjmatrix_clean[abs(adjmatrix_clean) < alpha] = np.nan
       supthr_indices = np.argwhere(~np.isnan(adjmatrix_clean))
       labels_clean = ["" if i not in supthr_indices else x for i, x in enumerate(labels)]
       coords_clean = [[np.nan, np.nan, np.nan] if i not in supthr_indices else x for i, x in enumerate(coords)]
@@ -578,6 +595,9 @@ def plot_palm_new(palm_results_fname, title, coords, labels, alpha=1.3, scale=Fa
       if labels_clean:
         save_list_to_file(labels_clean, os.path.join(output_dir, "labels_clean"))
         np.savetxt(os.path.join(output_dir, "coords_clean"), coords_clean)
+      
+      if pconn_dummy:
+        save_pconn(adjmatrix, pconn_dummy, os.path.join(output_dir, pconn_fname))
     
     return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean, labels_clean, coords_clean
 
