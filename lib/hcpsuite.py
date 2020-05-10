@@ -153,7 +153,7 @@ def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_
     exit(1)
   n=0
   if clean:
-    clean_matrices = [] # If we want clean matrices, it makes sense to return a list of cleaned matrices
+    clean_matrices = [] # If we want clean matrices it makes sense to return a list of cleaned matrices
   if pconn_dummy:
     img_dummy = nib.load(pconn_dummy)
   create_dir_if_not_exist(output_dir)
@@ -515,17 +515,18 @@ def subtract_arrays(positive, negative):
   
 def plot_palm_new(palm_results, title, coords, labels, alpha=1.3, scale=False, n_best_values=5, lower_is_better=False, output_dir=None, pconn_dummy=False, pconn_fname='connectome.pconn.nii'):
     """
-    Take PALM results (file or NumPy arraay) and plot its suprathreshold values (default 
+    Take PALM results (file or NumPy array) and plot its suprathreshold values (default 
     threshold value: alpha=1.3) in a correlation matrix and as a connectome visualisation.
     
     Use lower_is_better=True if you use standard p values and not log p or 1-p
     """
-    info = ["PALM results: {}".format(palm_results)] # This list holds all the informational messages we may later write into info.txt
     if isinstance(palm_results, str):
       # We assume the argument is a filename if it's a string
       data = get_nimg_data(palm_results)
+      info = ["PALM results: {}".format(palm_results)] # This list holds all the informational messages we may later write into info.txt
     else:
       data = palm_results
+      info = ["PALM results:"] # This list holds all the informational messages we may later write into info.txt
     # Get rid of superfluous dimensions
     adjmatrix = data[:, :, 0, 0]
     # Plot all p values
@@ -584,11 +585,11 @@ def plot_palm_new(palm_results, title, coords, labels, alpha=1.3, scale=False, n
       
       info.append("")
       info.append("Top 5 connections according to p value:")
-      info.append("Node A <-> Node B: p value")
+      info.append("Node A (label) <-> Node B (label): p value")
       for i in range(5):
         x = best_indices[0][i]
         y = best_indices[1][i]
-        msg = "{} <-> {}: {}".format(x+1, y+1, adjmatrix[x,y])
+        msg = "{} ({}) <-> {} ({}): {}".format(x+1, labels[x], y+1, labels[y], adjmatrix[x,y])
         info.append(msg)
       save_list_to_file(info, os.path.join(output_dir, "info.txt"))
       
@@ -598,7 +599,9 @@ def plot_palm_new(palm_results, title, coords, labels, alpha=1.3, scale=False, n
       
       if pconn_dummy:
         save_pconn(adjmatrix, pconn_dummy, os.path.join(output_dir, pconn_fname))
-    
+        
+    for entry in info:
+      print(entry)
     return fig_matrix, fig_matrix_clean, fig_connectome, fig_connectome_clean, web_connectome, web_connectome_clean, labels_clean, coords_clean
 
 
@@ -612,7 +615,7 @@ def get_extreme_indices(array, n, get_smallest=False):
     array_flattened = array.flatten()
     if get_smallest:
       # Here we need to remove all 0 values otherwise they tend to be the smallest
-      # We will leave negative values alone as some software will use negative p values
+      # We will leave negative values alone as some software might use negative p values
       # for e.g. inverse contrasts
       array_flattened[array_flattened == 0] = np.nan
       indices = np.argpartition(array_flattened, n)[:n]
