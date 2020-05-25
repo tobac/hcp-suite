@@ -5,8 +5,8 @@
 LIB_DIR="$(dirname $(realpath ${0}))/../lib"
 HCP="/home/tobac/HCP"
 TASK_LIST="SOCIAL MOTOR LANGUAGE WM GAMBLING RELATIONAL EMOTION"
-PARCELLATION_LIST="Glasser Ren RenGlasser RenSubcorticalGlasser"
-PARCELLATION_DIR="/home/tobac/Projekte/diss/parcellations"
+PARCELLATION_LIST="Glasser Ren RenGlasser RenSubcorticalGlasser RenTianGlasser"
+PARCELLATION_DIR="$(dirname ${0})/../data/parcellations"
 LOG_FILE="/tmp/$(basename ${0})-${RANDOM}.log"
 
 # Different naming convention for the following two variables as external scripts depend on them as well

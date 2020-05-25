@@ -167,7 +167,7 @@ def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_
       matrix_to_save = matrix
     if pconn_dummy:
       img_new_fname = os.path.join(output_dir, "{}.pconn.nii".format(subjects[n]))
-      img_new = nib.Cifti2Image(matrix, header=img_dummy.get_header(), file_map=img_dummy.file_map)
+      img_new = nib.Cifti2Image(matrix, header=img_dummy.header, file_map=img_dummy.file_map)
       print("\t Saving pconn to {}".format(img_new_fname))
       img_new.to_filename(img_new_fname)
     save_matrix(matrix_to_save, fname)
@@ -207,7 +207,7 @@ def make_temp_dir():
 
 def save_pconn(data, pconn_dummy, output_file):
   img_dummy = nib.load(pconn_dummy)
-  img_new = nib.Cifti2Image(data, header=img_dummy.get_header(), file_map=img_dummy.file_map)
+  img_new = nib.Cifti2Image(data, header=img_dummy.header, file_map=img_dummy.file_map)
   img_new.to_filename(output_file)
 
 def plot_all(matrix, title, time_series, coords_file, labels_file, output_dir, clean=True, vmin=None, vmax=None, nan_matrix=False, pconn_dummy=False, pconn_fname='correlation_measure-mean_.pconn.nii'):
