@@ -15,7 +15,8 @@ from nilearn import plotting
 from matplotlib import pyplot as plt
 from pandas import read_csv
 
-
+global verbose
+verbose = True
 global timers
 timers = [] 
 def timer(command, name=""):
@@ -26,7 +27,7 @@ def timer(command, name=""):
   elif command == "toc":
     toc = time.perf_counter()
     msg = "Time elapsed for {}: {} s".format(name, round(toc-tic, 2))
-    print("{}\n".format(msg))
+    printv("\n{}\n".format(msg))
     timers.append(msg)
   elif command == "report":
     print("\n------------------------------------------------------------")
@@ -35,7 +36,19 @@ def timer(command, name=""):
       print("  {}".format(timer))
     print("------------------------------------------------------------\n")
 
-
+def printv(msg, update=False):
+  """Prints a message if verbose is True. If update is true, replace last line."""
+  try: # verbose is not always defined
+    verbose
+  except NameError:
+    pass
+  else:
+    if verbose:
+      if update:
+        print(msg, end="\r", flush=True)
+      else:
+        print(msg)
+    
 def create_dir_if_not_exist(directory):
   if not os.path.exists(directory):
     print("Creating directory {}...".format(directory))
@@ -56,7 +69,7 @@ def load_time_series(file_list_fname):
 
   timer("tic")
   for file in file_list:
-    print("Loading time series from file {} ({}/{} | {} %)".format(file, n, n_series, round((n/n_series)*100, 2)))
+    printv("Loading time series from file {} ({}/{} | {} %)".format(file, n, n_series, round((n/n_series)*100, 2)), update=True)
     # Using Pandas' read_csv() speeds things up enormously in comparison to np.loadtxt
     ts = read_csv(file, delim_whitespace=True)
     tsnp = np.array(ts) # Convert to numpy array
@@ -122,7 +135,7 @@ def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_
         rearray[row][column][0][subject] = matrices_array[subject][row][column]
         column += 1
       row += 1
-    subject += 1 
+    subject += 1
     sys.stdout.flush # Needed to enable same-line updates on console
   print("\nSaving group NIfTI to {}.".format(output_fname))
   affine = np.array([[-1., 0., 0., n_rows-1], [ 0., 1., 0., -0.], [0., 0., 1., -0.], [0., 0., 0., 1.]])
@@ -168,7 +181,7 @@ def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_
     if pconn_dummy:
       img_new_fname = os.path.join(output_dir, "{}.pconn.nii".format(subjects[n]))
       img_new = nib.Cifti2Image(matrix, header=img_dummy.header, file_map=img_dummy.file_map)
-      print("\t Saving pconn to {}".format(img_new_fname))
+      print("    - Saving pconn to {}".format(img_new_fname))
       img_new.to_filename(img_new_fname)
     save_matrix(matrix_to_save, fname)
     n += 1
@@ -180,8 +193,8 @@ def save_individual_matrices(matrices, subjects, output_dir, clean=False, pconn_
 #  nib.save(image, fname)
 
 
-def compute_correlations(time_series):
-  correlation_measure = ConnectivityMeasure(kind='partial correlation')
+def compute_correlations(time_series, kind='partial correlation'):
+  correlation_measure = ConnectivityMeasure(kind=kind)
   print("Fit-transforming time series...")
   timer("tic")
   correlation_matrices = correlation_measure.fit_transform(time_series)
@@ -341,6 +354,17 @@ def symmetrize(matrix, mirror_lower=False):
     matrix_symmetric = matrix + matrix.T - np.diag(matrix.diagonal())
   return matrix_symmetric
 
+def symmetrize_matrices(matrices, mirror_lower=False):
+  """Helper function to symmetrize multiple matrices at once, e.g.
+  symmetrize all 999 matrices in an array of shape (999, 513, 513)"""
+  
+  global verbose
+  symm_matrices = np.zeros(matrices.shape)
+  for i in range(0, matrices.shape[0]):
+    printv("Symmetrizing matrix {} of {}...".format(i+1, matrices.shape[0]), update=True)
+    symm_matrices[i] = symmetrize(matrices[i, :, :])
+  
+  return symm_matrices
 
 def nifti_dim_to_cifti_dim(matrix):
   """Converts cols:rows:1:subjects to subjects:cols:rows"""
@@ -459,29 +483,28 @@ def get_ev_timeseries(ids, task, runs, parcellation, ev_files, data_dir='/home/t
                     start = math.ceil((ev[0]/tr)+1) # We can afford to lose one timepoint at the beginning, it might even improve SNR
                     end = math.floor((((ev[0]+ev[1])/tr)+1)) # We can afford to lose one timepoint at the end, it might even improve SNR
                     ev_data = subject_data_std[start:end]
-                    print("\tTimepoints in EV part {}/{} of {} (run {}): {}".format(e, len(evs), ev_file, run, len(ev_data)))
+                    printv("    Timepoints in EV part {}/{} of {} (run {}): {}".format(e, len(evs), ev_file, run, len(ev_data)))
                     T+=len(ev_data)
                     for ev_data_item in ev_data: # Don't create nested lists, just append each item to the primary list
                         ev_data_dict[id].append(ev_data_item)
                     e+=1
             tmpdir.cleanup() # Delete temporary directory
-        print("\t-> Total timepoints for subject {}: {}".format(id, T))
+        printv("    -> Total timepoints for subject {}: {}".format(id, T))
         n+=1
     return ev_data_dict
 
   
-def save_data_dict(data_dict):
+def save_data_dict(data_dict, path='./'):
     n = 1
     N = len(data_dict)
     fname_list = []
     for id, data in data_dict.items():
         fname = "{}.txt".format(id)
-        print("Saving text file {}/{} ({} %)".format(n, N, round(n/N*100, 2)), end="\r")
-        np.savetxt(fname, data)
+        printv("Saving text file {}/{} ({} %)".format(n, N, round(n/N*100, 2)), update=True)
+        np.savetxt(os.path.join(path, fname), data)
         fname_list.append(fname)
         n+=1
-        sys.stdout.flush # Needed to update line in console
-    with open("ts_files", 'w+') as f:
+    with open(os.path.join(path,"ts_files"), 'w+') as f:
         for filename in fname_list:
             f.write("%s\n" % filename)
 
