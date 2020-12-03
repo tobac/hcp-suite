@@ -283,7 +283,11 @@ def get_r_value(behav_obs_pred, tail="glm"):
   r = sp.stats.pearsonr(x.iloc[:, 0], y.iloc[:, 0])
   
   return r
-  
+
+def is_symmetric(a, rtol=1e-05, atol=1e-08):
+  """Check if matrix is symmetric.
+  https://stackoverflow.com/questions/42908334/checking-if-a-matrix-is-symmetric-in-numpy"""
+  return np.allclose(a, a.T, rtol=rtol, atol=atol)
   
 def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=None):
     edge_frac = (all_masks[tail].sum(axis=0))/(all_masks[tail].shape[0])
@@ -299,11 +303,13 @@ def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=Non
                     display_mode= 'lzry',
                     edge_kwargs={"linewidth": 1, 'color': color})
 
+
 def plot_consistent_edges_loo(posmasks, thresh=0.13, consistency=0.8, coords=None):
   """Plot edges obtained in a leave-one out CPM above a defined threshold that 
   are selected in at least a defined percentage of subjects."""
   
-  posmasks = symmetrize_matrices(posmasks, mirror_lower=True) # Symmetrize matrices
+  if not is_symmetric(posmasks[0]):
+    posmasks = symmetrize_matrices(posmasks, mirror_lower=True) # Symmetrize matrices
   posmasks_flat = posmasks.reshape(posmasks.shape[0], posmasks.shape[1]*posmasks.shape[2]) # Flatten matrix
   posmasks_flat
   edges_count = np.zeros(posmasks_flat.shape[1])
@@ -315,14 +321,14 @@ def plot_consistent_edges_loo(posmasks, thresh=0.13, consistency=0.8, coords=Non
   nodes_mask = edges_mask.reshape((posmasks.shape[1], posmasks.shape[2]))
   printv("There are {} suprathreshold (> {}) edges in {} % of the subjects".format(edges_mask[edges_mask ==1].sum()/2, thresh, consistency*100))
   
-  degree_list = []
+  degrees = []
   for node in range(513):
     degree = nodes_mask[node, :].sum() # Determine degre of each node and add it to list
-    degree_list.append(degree)
+    degrees.append(degree)
  
-  plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degree_list], edge_kwargs={"linewidth": 2})
+  plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degrees], edge_kwargs={"linewidth": 2})
 
-  
+
 def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   """
   Takes functional connectivity and behaviour dataframes, selects a behaviour
