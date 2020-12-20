@@ -11,9 +11,10 @@ import os
 import warnings
 import nibabel as nib
 import sys
+from joblib import Parallel, delayed
 from nilearn import plotting
 sys.path.append('/home/test/Projekte/diss/hcp-suite/lib')
-from hcpsuite import get_nimg_data, printv, nifti_dim_to_cifti_dim
+from hcpsuite import get_nimg_data, printv, nifti_dim_to_cifti_dim, symmetrize_matrices
 
 global verbose # We need this as global variables are actually module-level, not truly global
 verbose = True
@@ -159,7 +160,7 @@ def select_features(train_vcts, train_behav, r_thresh=0.2, corr_type='pearson'):
   printv("  - Found ({}/{}) edges positively/negatively correlated (threshold: {}) with behavior in the training set".format(mask_dict["pos"].sum(), mask_dict["neg"].sum(), r_thresh)) # for debugging
   printv("  - Max r pos: {}, max r neg: {}".format(corr.max(), corr.min()))
 
-  return mask_dict
+  return mask_dict, corr
 
 
 def is_invalid_array(array, sanitize = False):
@@ -328,11 +329,79 @@ def plot_consistent_edges_loo(posmasks, thresh=0.13, consistency=0.8, coords=Non
  
   plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degrees], edge_kwargs={"linewidth": 2})
 
+def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, behav, **cpm_kwargs):
+  global all_masks
+  global behav_obs_pred
+  global n_folds_completed
+  printv("Doing fold {}...".format(fold+1))
+  mask_dict = select_features(train_vcts, train_behav, **cpm_kwargs)
+  all_masks["pos"][fold,:] = mask_dict["pos"]
+  all_masks["neg"][fold,:] = mask_dict["neg"]
+  model_dict = build_model(train_vcts, mask_dict, train_behav)
+  if not model_dict: # build_model returns False instead of a dict if an array is not valid
+    printv("  - Fold failed -> continuing with next fold...")
+    return False # Skip fold if generated arrays are not valid
+  behav_pred = apply_model(test_vcts, mask_dict, model_dict)
+  for tail, predictions in behav_pred.items():
+    behav_obs_pred.loc[test_subs, behav + " predicted (" + tail + ")"] = predictions
+  n_folds_completed += 1
+  
+  behav_obs_pred.loc[subj_list, behav + " observed"] = all_behav_data[behav]
+
+def create_fold(fold, subj_list, indices, all_fc_data, all_behav_data, behav):
+  printv("Creating fold {}...".format(fold+1))
+  train_subs, test_subs = split_train_test(subj_list, indices, test_fold=fold)
+  train_vcts, train_behav, test_vcts = get_train_test_data(all_fc_data, train_subs, test_subs, all_behav_data, behav=behav)
+  
+  return train_vcts, train_behav, test_vcts, test_subs
+  
+def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kwargs):
+  """
+  Takes functional connectivity and behaviour dataframes, selects a behaviour
+  """
+  timer('tic', name='Parallel CPM')
+  assert all_fc_data.index.equals(all_behav_data.index), "Row (subject) indices of FC vcts and behavior don't match!"
+  global all_masks
+  global behav_obs_pred
+  global n_folds_completed
+
+  subj_list = all_fc_data.index # get subj_list from df index
+    
+  indices = create_kfold_indices(subj_list, k=k)
+    
+  # Initialize df for storing observed and predicted behavior
+  col_list = []
+  for tail in ["pos", "neg", "glm"]:
+    col_list.append(behav + " predicted (" + tail + ")")
+  col_list.append(behav + " observed")
+  behav_obs_pred = pd.DataFrame(index=subj_list, columns = col_list)
+    
+  # Initialize array for storing feature masks
+  n_edges = all_fc_data.shape[1]
+  all_masks = {}
+  all_masks["pos"] = np.zeros((k, n_edges))
+  all_masks["neg"] = np.zeros((k, n_edges))
+  
+  n_folds_completed = 0
+  
+  res = Parallel(n_jobs=n_jobs, prefer='threads')(delayed(create_fold)(fold, subj_list, indices, all_fc_data, all_behav_data, behav) for fold in range(k))
+  
+  train_vcts_list = [item[0] for item in res]
+  train_behav_list = [item[1] for item in res]
+  test_vcts_list = [item[2] for item in res]
+  test_subs_list = [item[3] for item in res]
+  
+  Parallel(n_jobs=n_jobs, prefer='threads')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], behav, **cpm_kwargs) for fold in range(k))
+
+  print("\nCPM completed. Successful folds: {}".format(n_folds_completed))
+  #return train_vcts_list, train_behav_list, test_vcts_list, test_subs_list
+  timer('toc')
 
 def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   """
   Takes functional connectivity and behaviour dataframes, selects a behaviour
   """
+  timer('tic', name='Linear CPM')
   assert all_fc_data.index.equals(all_behav_data.index), "Row (subject) indices of FC vcts and behavior don't match!"
 
   subj_list = all_fc_data.index # get subj_list from df index
@@ -354,7 +423,7 @@ def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   
   n_folds_completed = 0
   for fold in range(k):
-    print("Doing fold {} of {} (successful folds: {})...".format(fold + 1, k, n_folds_completed))
+    printv("Doing fold {} of {} (successful folds: {})...".format(fold + 1, k, n_folds_completed))
     train_subs, test_subs = split_train_test(subj_list, indices, test_fold=fold)
     train_vcts, train_behav, test_vcts = get_train_test_data(all_fc_data, train_subs, test_subs, all_behav_data, behav=behav)
     mask_dict = select_features(train_vcts, train_behav, **cpm_kwargs)
@@ -362,7 +431,7 @@ def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
     all_masks["neg"][fold,:] = mask_dict["neg"]
     model_dict = build_model(train_vcts, mask_dict, train_behav)
     if not model_dict: # build_model returns False instead of a dict if an array is not valid
-      print("  - Fold failed -> continuing with next fold...")
+      printv("  - Fold failed -> continuing with next fold...")
       continue # Skip fold if generated arrays are not valid
     behav_pred = apply_model(test_vcts, mask_dict, model_dict)
     for tail, predictions in behav_pred.items():
@@ -371,6 +440,6 @@ def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   
   print("\nCPM completed. Successful folds: {}".format(n_folds_completed))
   behav_obs_pred.loc[subj_list, behav + " observed"] = all_behav_data[behav]
-    
+  timer('toc')
   return behav_obs_pred, all_masks
 
