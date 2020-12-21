@@ -14,7 +14,7 @@ import sys
 from joblib import Parallel, delayed
 from nilearn import plotting
 sys.path.append('/home/test/Projekte/diss/hcp-suite/lib')
-from hcpsuite import get_nimg_data, printv, nifti_dim_to_cifti_dim, symmetrize_matrices
+from hcpsuite import get_nimg_data, printv, nifti_dim_to_cifti_dim, symmetrize_matrices, timer
 
 global verbose # We need this as global variables are actually module-level, not truly global
 verbose = True
@@ -160,7 +160,7 @@ def select_features(train_vcts, train_behav, r_thresh=0.2, corr_type='pearson'):
   printv("  - Found ({}/{}) edges positively/negatively correlated (threshold: {}) with behavior in the training set".format(mask_dict["pos"].sum(), mask_dict["neg"].sum(), r_thresh)) # for debugging
   printv("  - Max r pos: {}, max r neg: {}".format(corr.max(), corr.min()))
 
-  return mask_dict, corr
+  return mask_dict
 
 
 def is_invalid_array(array, sanitize = False):
@@ -329,14 +329,18 @@ def plot_consistent_edges_loo(posmasks, thresh=0.13, consistency=0.8, coords=Non
  
   plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degrees], edge_kwargs={"linewidth": 2})
 
-def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, behav, **cpm_kwargs):
+def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, subj_list, behav, **cpm_kwargs):
   global all_masks
   global behav_obs_pred
   global n_folds_completed
   printv("Doing fold {}...".format(fold+1))
   mask_dict = select_features(train_vcts, train_behav, **cpm_kwargs)
-  all_masks["pos"][fold,:] = mask_dict["pos"]
-  all_masks["neg"][fold,:] = mask_dict["neg"]
+  if isinstance(mask_dict,dict):
+    all_masks["pos"][fold,:] = mask_dict["pos"]
+    all_masks["neg"][fold,:] = mask_dict["neg"]
+  else:
+    all_masks["pos"][fold,:] = np.nan
+    all_masks["neg"][fold,:] = np.nan
   model_dict = build_model(train_vcts, mask_dict, train_behav)
   if not model_dict: # build_model returns False instead of a dict if an array is not valid
     printv("  - Fold failed -> continuing with next fold...")
@@ -391,7 +395,7 @@ def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kw
   test_vcts_list = [item[2] for item in res]
   test_subs_list = [item[3] for item in res]
   
-  Parallel(n_jobs=n_jobs, prefer='threads')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], behav, **cpm_kwargs) for fold in range(k))
+  Parallel(n_jobs=n_jobs, prefer='threads')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], subj_list, behav, **cpm_kwargs) for fold in range(k))
 
   print("\nCPM completed. Successful folds: {}".format(n_folds_completed))
   #return train_vcts_list, train_behav_list, test_vcts_list, test_subs_list
@@ -401,6 +405,7 @@ def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   """
   Takes functional connectivity and behaviour dataframes, selects a behaviour
   """
+  from hcpsuite import timer
   timer('tic', name='Linear CPM')
   assert all_fc_data.index.equals(all_behav_data.index), "Row (subject) indices of FC vcts and behavior don't match!"
 
