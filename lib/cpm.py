@@ -395,11 +395,12 @@ def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kw
   test_vcts_list = [item[2] for item in res]
   test_subs_list = [item[3] for item in res]
   
-  Parallel(n_jobs=n_jobs, prefer='threads')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], subj_list, behav, **cpm_kwargs) for fold in range(k))
+  Parallel(n_jobs=n_jobs, require='sharedmem')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], subj_list, behav, **cpm_kwargs) for fold in range(k))
 
   print("\nCPM completed. Successful folds: {}".format(n_folds_completed))
-  #return train_vcts_list, train_behav_list, test_vcts_list, test_subs_list
   timer('toc')
+  return behav_obs_pred, all_masks
+  
 
 def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   """
