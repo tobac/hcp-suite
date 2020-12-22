@@ -329,7 +329,7 @@ def plot_consistent_edges_loo(posmasks, thresh=0.13, consistency=0.8, coords=Non
  
   plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degrees], edge_kwargs={"linewidth": 2})
 
-def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, subj_list, behav, **cpm_kwargs):
+def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, subj_list, all_behav_data, behav, **cpm_kwargs):
   global all_masks
   global behav_obs_pred
   global n_folds_completed
@@ -395,7 +395,7 @@ def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kw
   test_vcts_list = [item[2] for item in res]
   test_subs_list = [item[3] for item in res]
   
-  Parallel(n_jobs=n_jobs, require='sharedmem')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], subj_list, behav, **cpm_kwargs) for fold in range(k))
+  Parallel(n_jobs=n_jobs, prefer='threads')(delayed(do_fold)(fold, train_vcts_list[fold], train_behav_list[fold], test_vcts_list[fold], test_subs_list[fold], subj_list, all_behav_data, behav, **cpm_kwargs) for fold in range(k))
 
   print("\nCPM completed. Successful folds: {}".format(n_folds_completed))
   timer('toc')
