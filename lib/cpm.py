@@ -358,6 +358,55 @@ def create_fold(fold, subj_list, indices, all_fc_data, all_behav_data, behav):
   train_vcts, train_behav, test_vcts = get_train_test_data(all_fc_data, train_subs, test_subs, all_behav_data, behav=behav)
   
   return train_vcts, train_behav, test_vcts, test_subs
+
+def do_perm(n, n_perm, train_vcts, train_behav, test_vcts, test_behav, **cpm_kwargs):
+  global verbose
+  printv("Doing permutation {} of {}".format(n+1, n_perm))
+  train_behav['obs'] = np.random.permutation(train_behav['obs'])
+  train_behav = train_behav['obs']
+  v=verbose
+  verbose=False
+  mask_dict = select_features(train_vcts, train_behav, **cpm_kwargs)
+  verbose=v
+  model_dict = build_model(train_vcts, mask_dict, train_behav)
+  behav_pred = apply_model(test_vcts, mask_dict, model_dict)
+  test_behav['glm'] = behav_pred['glm'] # We're only interested in GLM at this point
+  r = get_r_value(test_behav, tail='glm')[0]
+  
+  return r
+
+def perform_permutations(all_fc_data, all_behav_data, behav, n_perm=5000, n_jobs=2):
+  """Performs CPM on permuted behavioural data"""
+  timer('tic', name='Permutation CPM')
+  assert all_fc_data.index.equals(all_behav_data.index), "Row (subject) indices of FC vcts and behavior don't match!"
+    # Create DataFrame containing only behav column (for efficiency), then shuffle it for each permutation
+  # Shuffle all subject's behav column, because we need both train and test data to be shuffled (do we?
+  # might not even matter)
+  behav_of_interest = pd.DataFrame()
+  behav_of_interest['obs'] = all_behav_data[behav]
+  
+  subj_list = all_fc_data.index
+  # We can split the subjects simply a priori in half as we randomly permute behav data. This is 
+  # probably more efficient than handing the entire subj_list and especially fc_data to every thread
+  subj_half = len(subj_list)//2 
+  train_subs = subj_list[subj_half:] # Too many train subjects? Maybe use number of folds instead of splitting in half? -> e.g. create fold and do each permutation*k?
+  test_subs = subj_list[:subj_half] # Not enough test subjects? Maybe use number of folds instead of splitting in half?
+  train_vcts = pd.DataFrame(all_fc_data.loc[train_subs, :]) # TODO: Just use half, don't use .loc
+  test_vcts = pd.DataFrame(all_fc_data.loc[test_subs, :]) # Keep DataFrame type for downstream
+  train_behav = pd.DataFrame(behav_of_interest['obs'][subj_half:])
+  test_behav = pd.DataFrame(behav_of_interest['obs'][:subj_half])
+  
+  n_edges = all_fc_data.shape[1]
+  all_masks = {}
+  all_masks["pos"] = np.zeros((2, n_edges))
+  all_masks["neg"] = np.zeros((2, n_edges))
+  
+  res = Parallel(n_jobs=n_jobs, prefer='threads')(delayed(do_perm)(n, n_perm, train_vcts, train_behav, test_vcts, test_behav, **cpm_kwargs) for n in range(n_perm))
+  timer('toc')
+  
+  return res
+
+  #return n_perm, train_vcts, train_behav, test_vcts, behav_of_interest
   
 def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kwargs):
   """
@@ -448,4 +497,3 @@ def perform_cpm(all_fc_data, all_behav_data, behav, k=10, **cpm_kwargs):
   behav_obs_pred.loc[subj_list, behav + " observed"] = all_behav_data[behav]
   timer('toc')
   return behav_obs_pred, all_masks
-

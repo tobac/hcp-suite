@@ -1,0 +1,8 @@
+import sys
+sys.path.append('/home/test/Projekte/diss/hcp-suite/lib')
+from hcpsuite import *
+from cpm import *
+ids = load_list_from_file("/home/test/Projekte/diss/RenTianGlasser/all_complete.ids")
+all_behav_data = get_behav_data("/home/test/Projekte/diss/CPM/merged.csv", ids)
+all_fc_data = convert_matrices_to_dataframe(create_clean_upper_reshaped(get_nimg_data("/home/test/Projekte/diss/RenTianGlasser/corr_matrices_full.nii.gz")), ids)
+cpm_kwargs = {'r_thresh': 0.13, 'corr_type': 'pearson'}
