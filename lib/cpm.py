@@ -361,7 +361,7 @@ def create_fold(fold, subj_list, indices, all_fc_data, all_behav_data, behav):
 
 def do_perm(n, n_perm, train_vcts, train_behav, test_vcts, test_behav, **cpm_kwargs):
   global verbose
-  printv("Doing permutation {} of {}".format(n+1, n_perm))
+  printv("Doing permutation {} of {} ({} %)".format(n+1, n_perm, round(((n+1)/n_perm)*100, 2)))
   train_behav['obs'] = np.random.permutation(train_behav['obs'])
   train_behav = train_behav['obs']
   v=verbose
@@ -375,7 +375,7 @@ def do_perm(n, n_perm, train_vcts, train_behav, test_vcts, test_behav, **cpm_kwa
   
   return r
 
-def perform_permutations(all_fc_data, all_behav_data, behav, n_perm=5000, n_jobs=2):
+def perform_permutations(all_fc_data, all_behav_data, behav, n_perm=5000, n_jobs=2, **cpm_kwargs):
   """Performs CPM on permuted behavioural data"""
   timer('tic', name='Permutation CPM')
   assert all_fc_data.index.equals(all_behav_data.index), "Row (subject) indices of FC vcts and behavior don't match!"
@@ -407,6 +407,9 @@ def perform_permutations(all_fc_data, all_behav_data, behav, n_perm=5000, n_jobs
   return res
 
   #return n_perm, train_vcts, train_behav, test_vcts, behav_of_interest
+  
+def get_p_value(behav_obs_pred, perm_res):
+  
   
 def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kwargs):
   """
