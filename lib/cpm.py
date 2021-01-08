@@ -409,7 +409,7 @@ def perform_permutations(all_fc_data, all_behav_data, behav, n_perm=5000, n_jobs
   #return n_perm, train_vcts, train_behav, test_vcts, behav_of_interest
   
 def get_p_value(behav_obs_pred, perm_res):
-  
+  pass
   
 def perform_cpm_par(all_fc_data, all_behav_data, behav, k=10, n_jobs=2, **cpm_kwargs):
   """
