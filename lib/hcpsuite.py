@@ -90,7 +90,7 @@ def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_
   Take an array of matrices (e.g. output from ConnecitivityMeasure()),
   rearrange it to build a multi-subject NIfTI, e.g. for 361 ROIs and 
   999 subjects: (999, 361, 361) -> (361, 361, 1, 999). Default filename is
-  output_path/corr_matrices.full.nii.gz and can be overriden with output_file.
+  output_path/corr_matrices_full.nii.gz and can be overriden with output_file.
   
   If coi_indices are supplied, also save a COI matrix at 
   output_path/coi_matrices.nii.gz (default) or coi_fname.

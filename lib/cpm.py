@@ -21,7 +21,7 @@ verbose = True
 
 def convert_matrices_to_dataframe(array, subj_ids):
   """
-  Takes a NumPy array (subjects:parcels:parcels)and converts into a Pandas dataframe fit 
+  Takes a NumPy array (subjects:parcels:parcels) and converts it into a Pandas dataframe fit 
   for downstream CPM analyses
   """
   assert array.shape[0] == len(subj_ids), "Number of subject IDs is not equal to number of subjects in neuroimage file"
@@ -258,7 +258,7 @@ def apply_model(test_vcts, mask_dict, model_dict):
 
   return behav_pred
 
-def plot_predictions(behav_obs_pred, tail="glm"):
+def plot_predictions(behav_obs_pred, tail="glm", save=False, fname='predictions.svg'):
     x = behav_obs_pred.filter(regex=("obs")).astype(float)
     y = behav_obs_pred.filter(regex=(tail)).astype(float)
 
@@ -271,6 +271,10 @@ def plot_predictions(behav_obs_pred, tail="glm"):
     
     r = get_r_value(behav_obs_pred)
     g.annotate('r = {0:.2f}'.format(r[0]), xy = (0.7, 0.1), xycoords = 'axes fraction')
+    
+    if save:
+      fig = g.get_figure()
+      fig.savefig(fname)
     
     return g
   
@@ -305,29 +309,53 @@ def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=Non
                     edge_kwargs={"linewidth": 1, 'color': color})
 
 
-def plot_consistent_edges_loo(posmasks, thresh=0.13, consistency=0.8, coords=None):
+def plot_consistent_edges_loo(r_mat, thresh=0.13, tail='pos', consistency=0.8, coords=None, save=False, fname='consistent_edges.svg', **plot_connectome_kwargs):
   """Plot edges obtained in a leave-one out CPM above a defined threshold that 
   are selected in at least a defined percentage of subjects."""
   
-  if not is_symmetric(posmasks[0]):
-    posmasks = symmetrize_matrices(posmasks, mirror_lower=True) # Symmetrize matrices
-  posmasks_flat = posmasks.reshape(posmasks.shape[0], posmasks.shape[1]*posmasks.shape[2]) # Flatten matrix
-  posmasks_flat
-  edges_count = np.zeros(posmasks_flat.shape[1])
-  edges_mask = np.zeros(posmasks_flat.shape[1])
-  for i in range(0, posmasks_flat.shape[0]):
-    edges_count[posmasks_flat[i] > thresh] += 1 # Count number of times an edge is suprathreshold
+  r_mat = np.moveaxis(r_mat, -1 ,0)
+  r_mat[np.isnan(r_mat)] = 0 # We need to zero NaNs otherweise symmetrizing won't work
+  if not is_symmetric(r_mat[0]):
+    r_mat = symmetrize_matrices(r_mat, mirror_lower=True) # Symmetrize matrices
+  r_mat_flat = r_mat.reshape(r_mat.shape[0], r_mat.shape[1]*r_mat.shape[2]) # Flatten matrix
+  edges_mask = np.zeros(r_mat_flat.shape[1])
+    
+  if tail == 'pos':
+    edges_count = np.zeros(r_mat_flat.shape[1])
+    for i in range(0, r_mat_flat.shape[0]):
+      edges_count[r_mat_flat[i] > thresh] += 1 # Count number of times an edge is suprathreshold
+    edges_mask[edges_count > (r_mat.shape[0] * consistency)] = 1
+  elif tail == 'neg':
+    edges_count = np.zeros(r_mat_flat.shape[1])
+    for i in range(0, r_mat_flat.shape[0]):
+      edges_count[r_mat_flat[i] < (thresh * -1)] +=1
+    edges_mask[edges_count > (r_mat.shape[0] * consistency)] = -1  
+  elif tail == 'combined':
+    edges_count = np.zeros(r_mat_flat.shape[1])
+    for i in range(0, r_mat_flat.shape[0]):
+      edges_count[abs(r_mat_flat[i]) > thresh] += 1
+    edges_mask[edges_count > (r_mat.shape[0] * consistency)] = 1
+  else: # aka tail='both'
+    edges_count_pos = np.zeros(r_mat_flat.shape[1])
+    edges_count_neg = np.zeros(r_mat_flat.shape[1])
+    for i in range(0, r_mat_flat.shape[0]):
+      edges_count_pos[r_mat_flat[i] > thresh] += 1
+      edges_count_neg[r_mat_flat[i] < (thresh * -1)] +=1
+    edges_mask[edges_count_pos > (r_mat.shape[0] * consistency)] = 1
+    edges_mask[edges_count_neg > (r_mat.shape[0] * consistency)] = -1
   
-  edges_mask[edges_count > posmasks.shape[0]*consistency] = 1
-  nodes_mask = edges_mask.reshape((posmasks.shape[1], posmasks.shape[2]))
-  printv("There are {} suprathreshold (> {}) edges in {} % of the subjects".format(edges_mask[edges_mask ==1].sum()/2, thresh, consistency*100))
+  nodes_mask = edges_mask.reshape((r_mat.shape[1], r_mat.shape[2]))
+  printv("There are {} suprathreshold (> {}) edges in {} % of the subjects".format(len(edges_mask[edges_mask != 0])/2, thresh, consistency*100))
   
   degrees = []
   for node in range(513):
-    degree = nodes_mask[node, :].sum() # Determine degre of each node and add it to list
+    degree = np.sum(abs(nodes_mask[node, :])) # Determine degree of each node and add it to list
     degrees.append(degree)
- 
-  plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degrees], edge_kwargs={"linewidth": 2})
+    
+  plotting.plot_connectome(nodes_mask, node_coords=coords, display_mode='lzry', node_size=[degree*20 for degree in degrees], edge_kwargs={"linewidth": 2}, **plot_connectome_kwargs)
+  if save:
+    plt.savefig(fname)
+
 
 def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, subj_list, all_behav_data, behav, **cpm_kwargs):
   global all_masks
@@ -352,12 +380,14 @@ def do_fold(fold, train_vcts, train_behav, test_vcts, test_subs, subj_list, all_
   
   behav_obs_pred.loc[subj_list, behav + " observed"] = all_behav_data[behav]
 
+
 def create_fold(fold, subj_list, indices, all_fc_data, all_behav_data, behav):
-  printv("Creating fold {}...".format(fold+1))
+  printv("Creating fold {}...".format(fold+1), update = True)
   train_subs, test_subs = split_train_test(subj_list, indices, test_fold=fold)
   train_vcts, train_behav, test_vcts = get_train_test_data(all_fc_data, train_subs, test_subs, all_behav_data, behav=behav)
   
   return train_vcts, train_behav, test_vcts, test_subs
+
 
 def do_perm(n, n_perm, train_vcts, train_behav, test_vcts, test_behav, **cpm_kwargs):
   global verbose
@@ -374,6 +404,7 @@ def do_perm(n, n_perm, train_vcts, train_behav, test_vcts, test_behav, **cpm_kwa
   r = get_r_value(test_behav, tail='glm')[0]
   
   return r
+
 
 def perform_permutations(all_fc_data, all_behav_data, behav, n_perm=5000, n_jobs=2, **cpm_kwargs):
   """Performs CPM on permuted behavioural data"""
