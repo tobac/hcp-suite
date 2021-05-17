@@ -14,10 +14,50 @@ from sklearn.linear_model import LinearRegression
 from nilearn import plotting
 from hcpsuite import load_list_from_file, get_nimg_data, printv, nifti_dim_to_cifti_dim, symmetrize_matrices, symmetrize, timer
 
+def get_behav_data(fname, ids):
+  """
+  Read behavioural data for specified IDs from CSV and return dataframe
+  """
+  
+  behav_data = pd.read_csv(fname, dtype={'Subject': str}, low_memory = False)
+  behav_data.set_index('Subject', inplace=True)
+  behav_data = behav_data.loc[ids] # Keep only data from specified subjects
+  
+  return behav_data
+
+def convert_matrices_to_dataframe(array, subj_ids):
+  """
+  Takes a NumPy array (subjects:parcels:parcels) and converts it into a Pandas dataframe fit 
+  for downstream CPM analyses
+  """
+  assert array.shape[0] == len(subj_ids), "Number of subject IDs is not equal to number of subjects in neuroimage file"
+  fc_data = {}
+  n = 0
+  for id in subj_ids:
+    printv("Flattening matrix of subject {} ({} of {}...)".format(id, n+1, len(subj_ids)), update=True)
+    tmp = array[n, :, :] # Get matrix of a single subject
+    fc_data[id] = tmp[np.triu_indices_from(tmp, k=1)] # Only use upper triangle of symmetric matrix
+    n += 1
+  printv("\nCreating DataFrame from matrices...")
+  fc_data = pd.DataFrame.from_dict(fc_data, orient='index')
+  
+  return fc_data
+
+def create_clean_upper_reshaped(matrix):
+  """
+  Takes a matrix in the shape of parcels:parcels:1:subjects (e.g. NIfTI style)
+  and converts it into a matrix of subjects:parcels:parcels, and cleans it of
+  edges of non-interest
+  """
+  matrix = nifti_dim_to_cifti_dim(matrix)
+  matrix[:, 99:512, 99:512] = 0
+  matrix = np.triu(matrix)
+  
+  return matrix
 
 def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=None):
     edge_frac = (all_masks[tail].sum(axis=0))/(all_masks[tail].shape[0])
-    summary = "{} suprathreshold (>= {} %) edges in {} % of the subjects".format((edge_frac >= thresh).sum(), thresh*100)"
+    summary = "{} suprathreshold (>= {} %) edges in {} % of the subjects".format((edge_frac >= thresh).sum(), thresh*100, "TODO")
     print("For the {} tail, {} edges were selected in at least {}% of folds".format(tail, (edge_frac>=thresh).sum(), thresh*100))
     edge_frac_square = sp.spatial.distance.squareform(edge_frac)
 
@@ -43,7 +83,7 @@ def plot_predictions(predictions, tail="glm", save=False, title=None, fname='pre
     g.set_aspect('equal', adjustable='box')
     g.set_title(title)
     
-    r = get_r_value(x, y, tail=tail)
+    r = get_r_value(x, y)
     g.annotate('r = {0:.2f}'.format(r), xy = (0.7, 0.1), xycoords = 'axes fraction')
     
     if save:
@@ -52,7 +92,7 @@ def plot_predictions(predictions, tail="glm", save=False, title=None, fname='pre
     
     return g
   
-def get_r_value(x, y, tail="glm"):
+def get_r_value(x, y):
   x[np.isnan(x)] = 0
   y[np.isnan(y)] = 0
   
@@ -75,33 +115,38 @@ def get_kfold_indices(subs_list, k):
   
   return kfold_indices
 
-def get_suprathr_edges(df_list, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None):
-  n_folds = len(df_list)
-  n_edges = len(df_list[0])
+def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None):
+  n_folds = len(df_dict)
+  n_edges = len(df_dict[0])
   all_masks = {}
   all_masks['pos'] = np.zeros((n_folds, n_edges))
   all_masks['neg'] = np.zeros((n_folds, n_edges))
   
   for fold in range(n_folds):
-    pcorr_df = df_list[fold]
+    pcorr_df = df_dict[fold]
     suprathr_edges_mask = {}
     if p_thresh_pos and p_thresh_neg:
       suprathr_edges_mask['pos'] = (pcorr_df['r'] > 0) & (pcorr_df['p-val'] <= p_thresh_pos)
       suprathr_edges_mask['neg'] = (pcorr_df['r'] < 0) & (pcorr_df['p-val'] <= p_thresh_neg)
     elif r_thresh_pos and r_thresh_neg:
       suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
-      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg)
+      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg) # r_thresh_neg can be both given as a positive or a negative value
+    elif percentile_pos and percentile_neg:
+      r_thresh_pos = np.percentile(pcorr_df['r'], percentile_pos)
+      r_thresh_neg = np.percentile(pcorr_df['r'][pcorr_df['r'] < 0], 100 - percentile_neg)
+      suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
+      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg)  
     else:
-      raise TypeError('Either p_thresh or r_thresh needs to be defined.')
+      raise TypeError('Either p_thresh_{neg, pos} or r_thresh_{neg, pos} or percentile_{neg, pos} needs to be defined.')
     
-    printv("Fold {}: Pos/neg suprathreshold edges (max r pos/max r neg): {}/{} ({}/{})".format(fold+1, suprathr_edges_mask["pos"].sum(), suprathr_edges_mask["neg"].sum(), pcorr_df['r'].max(), pcorr_df['r'].min()))
+    printv("Fold {}: Pos/neg suprathreshold edges (max r pos/max r neg): {}/{} ({}/{})".format(fold+1, suprathr_edges_mask['pos'].sum(), suprathr_edges_mask['neg'].sum(), pcorr_df['r'].max(), pcorr_df['r'].min()))
     all_masks['pos'][fold,:] = suprathr_edges_mask['pos'].astype(bool)
     all_masks['neg'][fold,:] = suprathr_edges_mask['neg'].astype(bool)
   
   return all_masks
 
 class RayHandler:
-  def __init__(self, fc_data, behav_data, behav, covars, n_workers, ray_address=None):
+  def __init__(self, fc_data, behav_data, behav, covars, ray_address=None):
     ray.shutdown() # Make sure Ray is only initialised once
     if ray_address:
       self.ray_info = ray.init(address='auto')
@@ -119,11 +164,17 @@ class RayHandler:
     self.data_dict['covars'] = covars
     self.data_dict['data'] = fc_data
     self.data_dict['edges'] = self.data_dict['data'].columns.astype(str) # Save edges columns before adding behavioral columns
-    self.data_dict['data'][covars] = behav_data[covars]
+    if covars:
+      self.data_dict['data'][covars] = behav_data[covars]
     self.data_dict['data'][behav] = behav_data[behav]
     self.data_dict['data'].columns = self.data_dict['data'].columns.astype(str)
+    
+  def upload_data(self):
+    # Allows us to manipulate data in-class before uploading
+    # TODO: Put this and start_workers function in __init__() again?
     self.data_object = ray.put(self.data_dict)
     
+  def start_workers(self, n_workers):
     printv("Starting {} workers".format(n_workers))
     self.workers = [RayWorker.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue) for _ in range(n_workers)]
     
@@ -134,12 +185,13 @@ class RayHandler:
     self.in_queue.put(['prediction', mask, kfold_indices_train, kfold_indices_test, fold])
     
   def get_fselection_results(self):
-    results = []
+    results = {}
     n = 1
     N = self.out_queue.qsize()
     while not self.out_queue.empty():
         printv("Retrieving item {} of {}".format(n, N), update=True)
-        results.append(self.out_queue.get())
+        result = self.out_queue.get()
+        results[result[0]] = result[1]
         n += 1
     return results
 
@@ -235,27 +287,37 @@ class RayWorker:
     
     for edge in self.data['edges']: # Edge-wise correlation
       if (train_data[edge] != 0).any(): # All-zero columns will raise a ValueError exception. This is _way_ faster than try: except:
-        pcorr = partial_corr(data=train_data, x=edge, y=self.behav, covar=self.covars, method=method)[['r', 'p-val']] # Taking only the necessary columns speeds select_features() up a few %
+        if self.covars:
+          pcorr = partial_corr(data=train_data, x=edge, y=self.behav, covar=self.covars, method=method)[['r', 'p-val']] # Taking only the necessary columns speeds this up a few %
+          pcorr['covars'] = True # Debug, remove later
+        else: # We could also use pcorr from Pengouin on the entire df, but this is a prohibitively memory-intensive operation; edge-wise like this works just fine. This was introduced to test implausibliy good results for the above operation by Pengouin's partial_corr, by setting covars=None we can use SciPy's implementation of Pearson's r
+          pcorr = empty_df.copy()
+          pcorr[['r', 'p-val']] = sp.stats.pearsonr(train_data.loc[:, edge], train_data.loc[:, self.behav]) # We are basically reproducing Pengouin's output format here for unified downstream processing
+          pcorr['covars'] = False # Debug, remove later
       else:
         pcorr = empty_df
       corr_dfs.append(pcorr)
       percent_new = round((n/N)*100)
       if percent_new > percent:
-        self.status_update("Computing fold {} ({} %)".format(fold+1, percent_new))
+        self.status_update("Computing fold {} ({} %)...".format(fold+1, percent_new))
         percent = percent_new
       n += 1
     self.status_update("Assembling data frame...")
-    self.out_queue.put(pd.concat(corr_dfs)) # Assembling df before .put() seems to avoid prohibitively slowly pickling of data through queue (or whatever, it is orders of magnitude faster that way)
+    self.out_queue.put([fold, pd.concat(corr_dfs)]) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
     self.status_update("Listening for jobs...")
 
   def predict(self, mask_dict, kfold_indices_train, kfold_indices_test):
     train_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['edges']])
     test_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_test, self.data['edges']])
-    train_behav = pd.DataFrame(self.data['data'].loc[kfold_indices_train, behav])
+    train_behav = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['behav']])
     
     model = self.build_models(mask_dict, train_vcts, train_behav)
-    behav_pred = self.apply_models(mask_dict, test_vcts, model) # Dictionary? If so: add 'ids'
+    behav_pred = self.apply_models(mask_dict, test_vcts, model)
     behav_pred["IDs"] = kfold_indices_test
+    behav_pred["model"] = model # Debug
+    behav_pred["mask"] = mask_dict # Debug
+    behav_pred["train_IDs"] = kfold_indices_train # Debug
+    behav_pred["test_IDs"] = kfold_indices_test # Debug
     self.out_queue.put(behav_pred)
         
   def build_models(self, mask_dict, train_vcts, train_behav):
