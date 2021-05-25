@@ -115,6 +115,25 @@ def get_kfold_indices(subs_list, k):
   
   return kfold_indices
 
+def clean_kfold_indices(kfold_indices, behav_data, noneb_group='Mother_ID'):
+  """
+  Cleans the train part of kfold indices of entries sharing the same group.
+  This was written to exclude closely related subjects in HCP data by using 
+  'Mother_ID' as the noneb_group (read: non-exchangeability group).
+  
+  Returns the cleaned kfold_indices dictionary.
+  """
+  kfold_indices_clean = {} # Rebuilding from scratch seems easier than using copy.deepcopy()
+  kfold_indices_clean['train'] = []
+  kfold_indices_clean['test'] = []
+  for fold in range(len(kfold_indices['train'])):
+    noneb_values = behav_data.loc[kfold_indices['test'][fold], noneb_group]
+    mask = behav_data.loc[kfold_indices['train'][fold], noneb_group].isin(noneb_values)
+    kfold_indices_clean['train'].append(kfold_indices['train'][fold][~mask])
+    kfold_indices_clean['test'].append(kfold_indices['test'][fold])
+
+  return kfold_indices_clean
+
 def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None):
   n_folds = len(df_dict)
   n_edges = len(df_dict[0])
@@ -132,8 +151,8 @@ def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_p
       suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
       suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg) # r_thresh_neg can be both given as a positive or a negative value
     elif percentile_pos and percentile_neg:
-      r_thresh_pos = np.percentile(pcorr_df['r'], percentile_pos)
-      r_thresh_neg = np.percentile(pcorr_df['r'][pcorr_df['r'] < 0], 100 - percentile_neg)
+      r_thresh_pos = np.nanpercentile(pcorr_df['r'], percentile_pos)
+      r_thresh_neg = np.nanpercentile(pcorr_df['r'][pcorr_df['r'] < 0], 100 - percentile_neg)
       suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
       suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg)  
     else:
