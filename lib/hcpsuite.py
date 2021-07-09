@@ -150,6 +150,7 @@ def save_whole_sample_nifti(matrices_array, output_path, output_fname=None, coi_
 
   
 def save_matrix(matrix, fname, affine=np.eye(4)):
+  """Create a NIfTI image from matrix and save it to a file."""
   image = nib.nifti1.Nifti1Image(matrix, affine=affine)
   create_dir_if_not_exist(os.path.dirname(fname))
   nib.save(image, fname)

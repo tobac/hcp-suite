@@ -2,26 +2,30 @@ import sys
 sys.path.append("/home/sc.uni-leipzig.de/ty046wyna/hcp-suite/lib")
 import ray
 from ray.util.queue import Queue
-from cpm_cov import *
+#from cpm_cov import *
 import numpy as np
 import pandas as pd
 from time import sleep
+import socket
 import os
 import pickle
+import seaborn as sns
+import scipy as sp
 from sklearn.model_selection import KFold
 from pingouin import partial_corr
 from sklearn.linear_model import LinearRegression
 from nilearn import plotting
 from hcpsuite import load_list_from_file, get_nimg_data, printv, nifti_dim_to_cifti_dim, symmetrize_matrices, symmetrize, timer
 
-def get_behav_data(fname, ids):
+def get_behav_data(fname, ids=None):
   """
   Read behavioural data for specified IDs from CSV and return dataframe
   """
   
   behav_data = pd.read_csv(fname, dtype={'Subject': str}, low_memory = False)
   behav_data.set_index('Subject', inplace=True)
-  behav_data = behav_data.loc[ids] # Keep only data from specified subjects
+  if ids:
+    behav_data = behav_data.loc[ids] # Keep only data from specified subjects
   
   return behav_data
 
@@ -54,8 +58,10 @@ def create_clean_upper_reshaped(matrix):
   matrix = np.triu(matrix)
   
   return matrix
+  
 
-def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=None):
+def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=None, **plot_kwargs):
+    """Plots edges which are consistent in a defined percentage of folds"""
     edge_frac = (all_masks[tail].sum(axis=0))/(all_masks[tail].shape[0])
     summary = "{} suprathreshold (>= {} %) edges in {} % of the subjects".format((edge_frac >= thresh).sum(), thresh*100, "TODO")
     print("For the {} tail, {} edges were selected in at least {}% of folds".format(tail, (edge_frac>=thresh).sum(), thresh*100))
@@ -68,8 +74,82 @@ def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=Non
                     node_color = color,
                     node_coords=coords, node_size=node_size,
                     display_mode= 'lzry',
-                    edge_kwargs={"linewidth": 1, 'color': color})
+                    edge_kwargs={"linewidth": 1, 'color': color},
+                    **plot_kwargs)
+    
+    return (edge_frac_square >= thresh).astype(int)
 
+def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', img_suffix='png', labels=None, color='red'):
+    """
+    Takes a connectivity/correlation/prediction matrix (e.g. a meaned and masked r_mat from
+    pcorr_dfs_to_rmat_pmat(), and plots the top n edges as NetworkX graphs. img_naming_scheme
+    is either 'label' (in which case a list of labels has to be supplied) or 'number'
+    """
+    import networkx as nx
+    
+    if img_naming_scheme == 'label' and not labels:
+        raise ValueError("A list of labels needs to be specified if img_namingscheme is 'label'")
+    elif labels:
+        assert len(labels) == matrix.shape[0], "Number of labels does not match number of nodes"
+    
+    if is_symmetric(matrix):
+        matrix = np.tril(matrix) # Clear upper triangle in symmetric matrix to avoid duplicate edges
+ 
+    top_n_indices = np.unravel_index(np.argpartition(-matrix.flatten(), range(top_n))[:top_n], matrix.shape)
+    top_n_values = matrix[top_n_indices]
+    figures = []
+    for n in range(top_n):
+        G = nx.Graph()
+        nodes = []
+        nodes.append(top_n_indices[0][n]+1) # NumPy arrays are 0-index, nodes are not
+        nodes.append(top_n_indices[1][n]+1)
+        for node in nodes:
+            G.add_node(node)
+            if labels:
+                G.nodes[node]['label'] = labels[node]
+            if img_base:
+                if img_naming_scheme == 'label':
+                    fname = os.path.join(img_base, "{}.{}".format(labels[node], img_suffix))
+                elif img_naming_scheme == 'number':
+                    fname = os.path.join(img_base, "{}.{}".format(node, img_suffix))
+                else:
+                    raise ValueError("img_naming_scheme must be either 'label' or 'number'")
+                img = plt.imread(fname)
+                G.nodes[node]['image'] = img
+        G.add_edge(nodes[0], nodes[1], weight=round(top_n_values[n],6))
+        
+        # The next section relies heavily on https://stackoverflow.com/a/53968787      
+        pos = nx.planar_layout(G)
+
+        fig = plt.figure(figsize=(8,4))
+        ax = plt.subplot(111)
+        ax.set_aspect('equal')
+        edge_labels = nx.get_edge_attributes(G, 'weight')
+        nx.draw_networkx_edges(G, pos, ax=ax, edge_color=color)
+        nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=edge_labels) 
+
+        plt.xlim(-0.9,0.9)
+        plt.ylim(0.5,-0.5)
+
+        trans = ax.transData.transform
+        trans2 = fig.transFigure.inverted().transform
+
+        img_size = 0.5 # this is the image size
+        img_size_12 =img_size/2.0
+        for n in G:
+            xx, yy = trans(pos[n]) # figure coordinates
+            xa, ya = trans2((xx,yy)) # axes coordinates
+            a = plt.axes([xa-img_size_12,ya-img_size_12, img_size, img_size])
+            a.set_aspect('equal')
+            a.imshow(G.nodes[n]['image'])
+            a.text(0.5, -0.2, G.nodes[n]['label'], transform=a.transAxes, horizontalalignment='center')
+            a.axis('off')
+        #ax.text(0, 0.1, G.)
+        ax.axis('off')
+        figures.append(fig)
+        
+    return figures
+    
 
 def plot_predictions(predictions, tail="glm", save=False, title=None, fname='predictions.svg', color='gray'):
     x = predictions['observed'].astype(float)
@@ -134,7 +214,28 @@ def clean_kfold_indices(kfold_indices, behav_data, noneb_group='Mother_ID'):
 
   return kfold_indices_clean
 
-def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None):
+def pcorr_dfs_to_rmat_pmat(pcorr_dfs):
+  """
+  Takes a list of correlation DataFrames (post-feature selection), extracts their
+  p and r values and puts them in corresponding matrices.
+  
+  Input: List of DataFrames
+  Returns: r_mat and p_mat
+  """
+  n_mats = len(pcorr_dfs) # Number of individual matrices
+  n_edges = len(pcorr_dfs[0]['r'])
+  shape_mats = sp.spatial.distance.squareform(np.zeros(n_edges)).shape # Get squared dimension of matrix
+  r_mat = np.zeros((n_mats, shape_mats[0], shape_mats[1]))
+  p_mat = np.zeros((n_mats, shape_mats[0], shape_mats[1]))
+
+  for n in range(n_mats):
+    r_mat[n] = sp.spatial.distance.squareform(pcorr_dfs[n]['r'])
+    p_mat[n] = sp.spatial.distance.squareform(pcorr_dfs[n]['p-val'])
+  
+  return r_mat, p_mat
+  
+
+def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
   n_folds = len(df_dict)
   n_edges = len(df_dict[0])
   all_masks = {}
@@ -154,9 +255,14 @@ def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_p
       r_thresh_pos = np.nanpercentile(pcorr_df['r'], percentile_pos)
       r_thresh_neg = np.nanpercentile(pcorr_df['r'][pcorr_df['r'] < 0], 100 - percentile_neg)
       suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
-      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg)  
+      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg)
+    elif top_n_pos and top_n_neg:
+      suprathr_edges_mask['pos'] = np.zeros(pcorr_df.shape[0])
+      suprathr_edges_mask['neg'] = np.zeros(pcorr_df.shape[0])
+      suprathr_edges_mask['pos'][np.argpartition(pcorr_df['r'][pcorr_df['r'].notna()], -top_n_pos)[-top_n_pos:]] = 1
+      suprathr_edges_mask['neg'][np.argpartition(pcorr_df['r'][pcorr_df['r'].notna()], top_n_neg)[:top_n_neg]] = 1
     else:
-      raise TypeError('Either p_thresh_{neg, pos} or r_thresh_{neg, pos} or percentile_{neg, pos} needs to be defined.')
+      raise TypeError('Either p_thresh_{neg, pos} or r_thresh_{neg, pos} or percentile_{neg, pos} or top_n_{pos, neg} needs to be defined.')
     
     printv("Fold {}: Pos/neg suprathreshold edges (max r pos/max r neg): {}/{} ({}/{})".format(fold+1, suprathr_edges_mask['pos'].sum(), suprathr_edges_mask['neg'].sum(), pcorr_df['r'].max(), pcorr_df['r'].min()))
     all_masks['pos'][fold,:] = suprathr_edges_mask['pos'].astype(bool)
@@ -237,14 +343,15 @@ class RayHandler:
       printv("Retrieving item {} of {}".format(n, N), update=True)
       status_list = self.status_queue.get()
       pid = status_list[0]
-      msg = status_list[1]
-      self.status_dict[pid] = msg
+      node = status_list[1]
+      msg = status_list[2]
+      self.status_dict[pid] = {"msg": msg, "node": node}
       n += 1
     n = 1
     N_workers = len(self.status_dict)
     width = len(str(N_workers))
-    for pid, msg in self.status_dict.items():
-        print("Worker {}/{} [{}]: {}".format(str(n).zfill(width), N_workers, pid, msg))
+    for pid, info in self.status_dict.items():
+        print("Worker {}/{} [{}@{}]: {}".format(str(n).zfill(width), N_workers, pid, info['node'], info['msg']))
         n += 1
     print("\n")
     print("Folds remaining in queue: {}".format(self.in_queue.qsize()))
@@ -264,6 +371,7 @@ class RayWorker:
     self.out_queue = out_queue
     self.status_queue = status_queue
 
+    self.node = socket.gethostname()
     self.pid = os.getpid()
     
     self.in_queue_listener() # Listen for jobs
@@ -292,7 +400,7 @@ class RayWorker:
         raise TypeError('Ill-defined job type.')
   
   def status_update(self, msg):
-    self.status_queue.put([self.pid, msg])
+    self.status_queue.put([self.pid, self.node, msg])
         
   def edgewise_pcorr(self, train_subs, fold, method='pearson'):
     corr_dfs = [] # Appending to list and then creating dataframe is substantially faster than appending to dataframe
