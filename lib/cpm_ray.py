@@ -79,30 +79,34 @@ def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=Non
     
     return (edge_frac_square >= thresh).astype(int)
 
-def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', img_suffix='png', labels=None, color='red'):
+def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', img_suffix='png', labels=None, color='red', check_for_symmetry=False):
     """
     Takes a connectivity/correlation/prediction matrix (e.g. a meaned and masked r_mat from
     pcorr_dfs_to_rmat_pmat(), and plots the top n edges as NetworkX graphs. img_naming_scheme
     is either 'label' (in which case a list of labels has to be supplied) or 'number'
     """
     import networkx as nx
+    from matplotlib import pyplot as plt
     
     if img_naming_scheme == 'label' and not labels:
         raise ValueError("A list of labels needs to be specified if img_namingscheme is 'label'")
     elif labels:
         assert len(labels) == matrix.shape[0], "Number of labels does not match number of nodes"
     
-    if is_symmetric(matrix):
-        matrix = np.tril(matrix) # Clear upper triangle in symmetric matrix to avoid duplicate edges
- 
+    if check_for_symmetry: # is_symmetric() is somewhat unreliable, therefore it is disabled by default
+        if is_symmetric(matrix):
+            matrix = np.tril(matrix) # Clear upper triangle in symmetric matrix to avoid duplicate edges
+    else:
+            matrix = np.tril(matrix) # Clear upper triangle in symmetric matrix to avoid duplicate edges
+    matrix = abs(matrix) # Let this function work for both pos and neg tails
     top_n_indices = np.unravel_index(np.argpartition(-matrix.flatten(), range(top_n))[:top_n], matrix.shape)
     top_n_values = matrix[top_n_indices]
     figures = []
     for n in range(top_n):
         G = nx.Graph()
         nodes = []
-        nodes.append(top_n_indices[0][n]+1) # NumPy arrays are 0-index, nodes are not
-        nodes.append(top_n_indices[1][n]+1)
+        nodes.append(top_n_indices[0][n])
+        nodes.append(top_n_indices[1][n])
         for node in nodes:
             G.add_node(node)
             if labels:
@@ -111,7 +115,7 @@ def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', im
                 if img_naming_scheme == 'label':
                     fname = os.path.join(img_base, "{}.{}".format(labels[node], img_suffix))
                 elif img_naming_scheme == 'number':
-                    fname = os.path.join(img_base, "{}.{}".format(node, img_suffix))
+                    fname = os.path.join(img_base, "{}.{}".format(node+1, img_suffix)) # NumPy arrays are 0-indexed, nodes are not
                 else:
                     raise ValueError("img_naming_scheme must be either 'label' or 'number'")
                 img = plt.imread(fname)
