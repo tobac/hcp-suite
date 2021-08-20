@@ -77,7 +77,7 @@ def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=Non
                     edge_kwargs={"linewidth": 1, 'color': color},
                     **plot_kwargs)
     
-    return (edge_frac_square >= thresh).astype(int)
+    return (edge_frac_square >= thresh).astype(int), node_mask
 
 def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', img_suffix='png', labels=None, color='red', check_for_symmetry=False):
     """
@@ -153,6 +153,24 @@ def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', im
         figures.append(fig)
         
     return figures
+
+def plot_top_n_nodes(degrees, top_n, parcellation_img, bg_img, n_slices=5, display_modes=['x', 'y', 'z']):
+    n_nodes = len(degrees)
+    top_n_nodes = np.argsort(degrees)[-top_n:]
+    
+    new_data = np.zeros(parcellation_img.shape)
+    for node in top_n_nodes:
+        # In a parcellation image, parcels = nodes are represented as neighbouring 
+        # voxels with values corresponding to the parcel/node number
+        new_data[rtg_data == node] = node
+    new_img = nib.Nifti1Image(new_data, rtg.affine, rtg.header)
+    
+    figures_dict = {}
+    for display_mode in display_modes:
+        plotting.plot_roi(new_img, cut_coords=5, display_mode=display_mode, bg_img=bg_img,     black_bg=False)
+        figures_dict[display_mode] = plt.gcf()
+        
+    return figures_dict
     
 
 def plot_predictions(predictions, tail="glm", save=False, title=None, fname='predictions.svg', color='gray'):
@@ -340,7 +358,7 @@ class RayHandler:
         n += 1
     return results
 
-  def status(self):
+  def status(self, verbose=True):
     n = 1
     N = self.status_queue.qsize()
     while not self.status_queue.empty():
@@ -355,10 +373,15 @@ class RayHandler:
     N_workers = len(self.status_dict)
     width = len(str(N_workers))
     for pid, info in self.status_dict.items():
-        print("Worker {}/{} [{}@{}]: {}".format(str(n).zfill(width), N_workers, pid, info['node'], info['msg']))
+        printv("Worker {}/{} [{}@{}]: {}".format(str(n).zfill(width), N_workers, pid, info['node'], info['msg']))
         n += 1
     print("\n")
-    print("Folds remaining in queue: {}".format(self.in_queue.qsize()))
+    out_size = self.out_queue.qsize()
+    in_size = self.in_queue.qsize()
+    print("Folds done: {}".format(out_size))
+    print("Folds remaining in queue: {}".format(in_size))
+    
+    return out_size, in_size
         
   def terminate(self):
     ray.shutdown()
