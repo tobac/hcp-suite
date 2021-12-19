@@ -1,8 +1,6 @@
 import sys
-sys.path.append("/home/sc.uni-leipzig.de/ty046wyna/hcp-suite/lib")
 import ray
 from ray.util.queue import Queue
-#from cpm_cov import *
 import numpy as np
 import pandas as pd
 from time import sleep
@@ -257,15 +255,15 @@ def pcorr_dfs_to_rmat_pmat(pcorr_dfs):
   return r_mat, p_mat
   
 
-def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
-  n_folds = len(df_dict)
-  n_edges = len(df_dict[0])
+def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
+  n_folds = len(df_dict[perm])
+  n_edges = len(df_dict[perm][0])
   all_masks = {}
   all_masks['pos'] = np.zeros((n_folds, n_edges))
   all_masks['neg'] = np.zeros((n_folds, n_edges))
   
   for fold in range(n_folds):
-    pcorr_df = df_dict[fold]
+    pcorr_df = df_dict[perm][fold]
     suprathr_edges_mask = {}
     if p_thresh_pos and p_thresh_neg:
       suprathr_edges_mask['pos'] = (pcorr_df['r'] > 0) & (pcorr_df['p-val'] <= p_thresh_pos)
@@ -293,106 +291,138 @@ def get_suprathr_edges(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_p
   return all_masks
 
 class RayHandler:
-  def __init__(self, fc_data, behav_data, behav, covars, ray_address=None):
+  def __init__(self, fc_data, behav_data, behav, covars, n_perm=0, **ray_kwargs):
     ray.shutdown() # Make sure Ray is only initialised once
-    if ray_address:
-      self.ray_info = ray.init(address='auto')
-    else:
-      self.ray_info = ray.init()
+    self.ray_info = ray.init(**ray_kwargs)
 
     self.in_queue = Queue()
     self.out_queue = Queue()
     self.status_queue = Queue()
+    self.report_queue = Queue()
     
     self.status_dict = {}
+    
+    # Create dictionaries to keep results (it makes sense to do this class-wide to add results on-the-fly and for later reference if get results functions are called too early for example
+    self.fselection_results = {}
+    self.fselection_results[-1] = {} # Create sub-dictionary for original (i.e. non-permuted) data
+    self.prediction_results = {}
 
     self.data_dict = {}
     self.data_dict['behav'] = behav
     self.data_dict['covars'] = covars
+    self.data_dict['n_perm'] = n_perm
     self.data_dict['data'] = fc_data
     self.data_dict['edges'] = self.data_dict['data'].columns.astype(str) # Save edges columns before adding behavioral columns
+    # Pengouin needs all the data (edges, behav, and covars) in a single DataFrame
     if covars:
       self.data_dict['data'][covars] = behav_data[covars]
-    self.data_dict['data'][behav] = behav_data[behav]
+    if n_perm > 0:
+      # It seems to be more efficient to create a separate df and concat later;
+      # .to_frame() converts Pandas series into a DataFrame on-the-fly
+      behav_df = behav_data[behav].to_frame()
+      for perm in range(n_perm):
+        behav_df["{}-perm-{}".format(behav, perm)] = np.random.permutation(behav_df[behav])
+        self.fselection_results[perm] = {} # Create sub-dictionaries to keep fselection results for permutations
+      behav_df = behav_df.copy()
+      # To avaid fragmentation (and the corresponding warning), consolidate into a 
+      # new DataFrame)
+      self.data_dict['data'] = pd.concat([self.data_dict['data'], behav_df], axis=1)
+    else:
+      self.data_dict['data'][behav] = behav_data[behav]
     self.data_dict['data'].columns = self.data_dict['data'].columns.astype(str)
     
   def upload_data(self):
     # Allows us to manipulate data in-class before uploading
-    # TODO: Put this and start_workers function in __init__() again?
+    # TODO: Put this and start_workers function in __init__() again? -> No, permutation
+    # and post-festum data manipulation!
     self.data_object = ray.put(self.data_dict)
     
   def start_workers(self, n_workers):
     printv("Starting {} workers".format(n_workers))
     self.workers = [RayWorker.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue) for _ in range(n_workers)]
     
-  def submit_fselection(self, train_subs, fold):
-    self.in_queue.put(['fselection', train_subs, fold])
+  def submit_fselection(self, train_subs, fold, perm=-1):
+    # perm=-1 means original data and is the default
+    self.in_queue.put(['fselection', train_subs, fold, perm])
   
-  def submit_prediction(self, mask, kfold_indices_train, kfold_indices_test, fold):
-    self.in_queue.put(['prediction', mask, kfold_indices_train, kfold_indices_test, fold])
+  def submit_prediction(self, mask, kfold_indices_train, kfold_indices_test, fold, perm=-1):
+    self.in_queue.put(['prediction', mask, kfold_indices_train, kfold_indices_test, fold, perm])
     
+  def get_results(self, queue, n=100):
+      """
+      Common get function utilised by get_{prediction,fselection}_results
+      Input: queue to get from, max number of items to get at once
+      Output: combined results
+      """
+      N_total = 0
+      results = []
+      while not queue.empty():
+          N = queue.qsize()
+          if N_total < N:
+            N_total = N
+          if N < n: # To provide some sort of progress display, it makes sense to split
+              n = N
+          printv("Retrieving results: {} of {}".format(len(results)+n, N_total), update=True)
+          items = queue.get_nowait_batch(n)
+          for item in items:
+              results.append(item)
+      return results
+        
   def get_fselection_results(self):
-    results = {}
+    results = self.get_results(self.out_queue)
     n = 1
-    N = self.out_queue.qsize()
-    while not self.out_queue.empty():
-        printv("Retrieving item {} of {}".format(n, N), update=True)
-        result = self.out_queue.get()
-        results[result[0]] = result[1]
+    N = len(results)
+    for result in results:
+        fold = result[0]
+        perm = result[1]
+        df = result[2]
+        printv("\n")
+        printv("Rearranging result {} of {}".format(n, N), update=True)
+        self.fselection_results[perm][fold] = df        
         n += 1
-    return results
+    return self.fselection_results
 
   def get_prediction_results(self):
-    results = pd.DataFrame()
-    results['observed'] = self.data_dict['data'][self.data_dict['behav']]
-    for tail in ('pos', 'neg', 'glm'): # Initialize rows
-        results[tail] = np.nan
-    
-    n = 1
-    N = self.out_queue.qsize()
-    while not self.out_queue.empty():
-        printv("Retrieving item {} of {}".format(n, N), update=True)
-        result_dict = self.out_queue.get()
+    results_df = pd.DataFrame()
+    results_df['observed'] = self.data_dict['data'][self.data_dict['behav']]
+    results = self.get_results(self.out_queue)
+    for result_dict in results:
         for tail in ('pos', 'neg', 'glm'):
-          results.loc[result_dict['IDs'], tail] = result_dict[tail]
-        n += 1
-    return results
+            results_df.loc[result_dict['IDs'], tail] = result_dict[tail]
+        self.prediction_results[result_dict['perm']] = results_df
+    return self.prediction_results
 
   def status(self, verbose=True):
-    n = 1
-    N = self.status_queue.qsize()
-    while not self.status_queue.empty():
-      printv("Retrieving item {} of {}".format(n, N), update=True)
-      status_list = self.status_queue.get()
+    N = self.status_queue.size()
+    status_list_list = self.status_queue.get_nowait_batch(N)
+    printv("Retrieving {} items from status queue...".format(N))
+    for status_list in status_list_list:
       pid = status_list[0]
       node = status_list[1]
       msg = status_list[2]
       self.status_dict[pid] = {"msg": msg, "node": node}
-      n += 1
     n = 1
     N_workers = len(self.status_dict)
     width = len(str(N_workers))
     for pid, info in self.status_dict.items():
-        printv("Worker {}/{} [{}@{}]: {}".format(str(n).zfill(width), N_workers, pid, info['node'], info['msg']))
+        print("Worker {}/{} [{}@{}]: {}".format(str(n).zfill(width), N_workers, pid, info['node'], info['msg']))
         n += 1
     print("\n")
     out_size = self.out_queue.qsize()
     in_size = self.in_queue.qsize()
-    print("Folds done: {}".format(out_size))
-    print("Folds remaining in queue: {}".format(in_size))
+    print("Jobs done: {}".format(out_size))
+    print("Jobs remaining in queue: {}".format(in_size))
     
     return out_size, in_size
         
   def terminate(self):
     ray.shutdown()
-
+    
 @ray.remote
 class RayWorker:
   def __init__(self, data, in_queue, out_queue, status_queue):
     
     self.data = data
-    self.behav = self.data['behav']
-    self.covars = self.data['covars']
     
     self.in_queue = in_queue
     self.out_queue = out_queue
@@ -415,21 +445,23 @@ class RayWorker:
       if job_type == 'fselection':
         train_subs = obj_list[1]
         fold = obj_list[2]
-        self.edgewise_pcorr(train_subs, fold) 
+        perm = obj_list[3]
+        self.edgewise_pcorr(train_subs, fold, perm) 
       elif job_type == 'prediction':
         mask = obj_list[1]
         kfold_indices_train = obj_list[2]
         kfold_indices_test = obj_list[3]
         fold = obj_list[4]
+        perm = obj_list[5]
         self.status_update("Predicting fold {}...".format(fold+1)) # No detailed update needed, so once is sufficient
-        self.predict(mask, kfold_indices_train, kfold_indices_test)
+        self.predict(mask, kfold_indices_train, kfold_indices_test, perm)
       else:
         raise TypeError('Ill-defined job type.')
   
   def status_update(self, msg):
     self.status_queue.put([self.pid, self.node, msg])
         
-  def edgewise_pcorr(self, train_subs, fold, method='pearson'):
+  def edgewise_pcorr(self, train_subs, fold, perm, method='pearson'):
     corr_dfs = [] # Appending to list and then creating dataframe is substantially faster than appending to dataframe
     empty_df = pd.DataFrame({'r': {'pearson': np.nan}, 'p-val': {'pearson': np.nan}}) # Handle all-zero edges
     train_data = self.data['data'].loc[train_subs]
@@ -441,29 +473,41 @@ class RayWorker:
     
     for edge in self.data['edges']: # Edge-wise correlation
       if (train_data[edge] != 0).any(): # All-zero columns will raise a ValueError exception. This is _way_ faster than try: except:
-        if self.covars:
-          pcorr = partial_corr(data=train_data, x=edge, y=self.behav, covar=self.covars, method=method)[['r', 'p-val']] # Taking only the necessary columns speeds this up a few %
+        if perm >= 0:
+            y = "{}-perm-{}".format(self.data['behav'], perm)
+        else:
+            y = self.data['behav']
+        if self.data['covars']:
+          pcorr = partial_corr(data=train_data, x=edge, y=y, covar=self.data['covars'], method=method)[['r', 'p-val']] # Taking only the necessary columns speeds this up a few %
           pcorr['covars'] = True # Debug, remove later
-        else: # We could also use pcorr from Pengouin on the entire df, but this is a prohibitively memory-intensive operation; edge-wise like this works just fine. This was introduced to test implausibliy good results for the above operation by Pengouin's partial_corr, by setting covars=None we can use SciPy's implementation of Pearson's r
+        else: # We could also use pcorr from Pingouin on the entire df, but this is a prohibitively memory-intensive operation; edge-wise like this works just fine. This was introduced to test implausibly good results for the above operation by Pengouin's partial_corr, by setting covars=None we can use SciPy's implementation of Pearson's r
           pcorr = empty_df.copy()
-          pcorr[['r', 'p-val']] = sp.stats.pearsonr(train_data.loc[:, edge], train_data.loc[:, self.behav]) # We are basically reproducing Pengouin's output format here for unified downstream processing
+          pcorr[['r', 'p-val']] = sp.stats.pearsonr(train_data.loc[:, edge], train_data.loc[:, y]) # We are basically reproducing Pingouin's output format here for unified downstream processing
           pcorr['covars'] = False # Debug, remove later
       else:
         pcorr = empty_df
       corr_dfs.append(pcorr)
       percent_new = round((n/N)*100)
+      if perm >= 0:
+        fold_msg = "{} of permutation {}".format(fold+1, perm+1)
+      else:
+        fold_msg = fold+1
       if percent_new > percent:
-        self.status_update("Computing fold {} ({} %)...".format(fold+1, percent_new))
+        self.status_update("Computing fold {} ({} %)...".format(fold_msg, percent_new))
         percent = percent_new
       n += 1
     self.status_update("Assembling data frame...")
-    self.out_queue.put([fold, pd.concat(corr_dfs)]) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
+    self.out_queue.put([fold, perm, pd.concat(corr_dfs)]) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
     self.status_update("Listening for jobs...")
 
-  def predict(self, mask_dict, kfold_indices_train, kfold_indices_test):
+  def predict(self, mask_dict, kfold_indices_train, kfold_indices_test, perm):
     train_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['edges']])
     test_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_test, self.data['edges']])
-    train_behav = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['behav']])
+    if perm >= 0:
+        behav = "{}-perm-{}".format(self.data['behav'], perm)
+    else:
+        behav = self.data['behav']
+    train_behav = pd.DataFrame(self.data['data'].loc[kfold_indices_train, behav])
     
     model = self.build_models(mask_dict, train_vcts, train_behav)
     behav_pred = self.apply_models(mask_dict, test_vcts, model)
@@ -472,6 +516,7 @@ class RayWorker:
     behav_pred["mask"] = mask_dict # Debug
     behav_pred["train_IDs"] = kfold_indices_train # Debug
     behav_pred["test_IDs"] = kfold_indices_test # Debug
+    behav_pred["perm"] = perm # Debug
     self.out_queue.put(behav_pred)
         
   def build_models(self, mask_dict, train_vcts, train_behav):
