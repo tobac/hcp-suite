@@ -1,6 +1,8 @@
 import sys
+sys.path.append("/home/sc.uni-leipzig.de/ty046wyna/hcp-suite/lib")
 import ray
 from ray.util.queue import Queue
+#from cpm_cov import *
 import numpy as np
 import pandas as pd
 from time import sleep
@@ -383,14 +385,14 @@ class RayHandler:
     return self.fselection_results
 
   def get_prediction_results(self):
-    results_df = pd.DataFrame()
-    results_df['observed'] = self.data_dict['data'][self.data_dict['behav']]
-    results = self.get_results(self.out_queue)
-    for result_dict in results:
-        for tail in ('pos', 'neg', 'glm'):
-            results_df.loc[result_dict['IDs'], tail] = result_dict[tail]
-        self.prediction_results[result_dict['perm']] = results_df
-    return self.prediction_results
+      results = self.get_results(self.out_queue)
+      for results_dict in results:
+          if results_dict['perm'] not in self.prediction_results:
+              self.prediction_results[results_dict['perm']] = pd.DataFrame()
+              self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
+          for tail in ('pos', 'neg', 'glm'):
+              self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
+      return self.prediction_results
 
   def status(self, verbose=True):
     N = self.status_queue.size()
@@ -567,6 +569,7 @@ class RayWorker:
       t+=1
 
     X_glm = np.c_[X_glm, np.ones(X_glm.shape[0])]
-    behav_pred["glm"] = np.dot(X_glm, model_dict["glm"])
+    glm_results = np.dot(X_glm, model_dict["glm"])
+    behav_pred["glm"] = glm_results[:, 0] # Transforms 2d array into 1d array
 
     return behav_pred
