@@ -236,6 +236,7 @@ def clean_kfold_indices(kfold_indices, behav_data, noneb_group='Mother_ID'):
 
   return kfold_indices_clean
 
+
 def pcorr_dfs_to_rmat_pmat(pcorr_dfs):
   """
   Takes a list of correlation DataFrames (post-feature selection), extracts their
@@ -257,14 +258,51 @@ def pcorr_dfs_to_rmat_pmat(pcorr_dfs):
   return r_mat, p_mat
   
 
+def get_suprathr_edges_new(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
+  folds_list = list(df_dict.keys())
+  n_edges = len(df_dict[folds_list[0]])
+  masks_dict = {}
+
+  for fold in folds_list:
+    pcorr_df = df_dict[fold]
+    n_edges = len(df_dict[fold])
+    masks_dict[fold] = {}
+    suprathr_edges_mask = {}
+    if p_thresh_pos and p_thresh_neg:
+      suprathr_edges_mask['pos'] = (pcorr_df['r'] > 0) & (pcorr_df['p-val'] <= p_thresh_pos)
+      suprathr_edges_mask['neg'] = (pcorr_df['r'] < 0) & (pcorr_df['p-val'] <= p_thresh_neg)
+    elif r_thresh_pos and r_thresh_neg:
+      suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
+      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg) # r_thresh_neg can be both given as a positive or a negative value
+    elif percentile_pos and percentile_neg:
+      r_thresh_pos = np.nanpercentile(pcorr_df['r'], percentile_pos)
+      r_thresh_neg = np.nanpercentile(pcorr_df['r'][pcorr_df['r'] < 0], 100 - percentile_neg)
+      suprathr_edges_mask['pos'] = pcorr_df['r'] > r_thresh_pos
+      suprathr_edges_mask['neg'] = pcorr_df['r'] < -abs(r_thresh_neg)
+    elif top_n_pos and top_n_neg:
+      suprathr_edges_mask['pos'] = np.zeros(pcorr_df.shape[0])
+      suprathr_edges_mask['neg'] = np.zeros(pcorr_df.shape[0])
+      suprathr_edges_mask['pos'][np.argpartition(pcorr_df['r'][pcorr_df['r'].notna()], -top_n_pos)[-top_n_pos:]] = 1
+      suprathr_edges_mask['neg'][np.argpartition(pcorr_df['r'][pcorr_df['r'].notna()], top_n_neg)[:top_n_neg]] = 1
+    else:
+      raise TypeError('Either p_thresh_{neg, pos} or r_thresh_{neg, pos} or percentile_{neg, pos} or top_n_{pos, neg} needs to be defined.')
+
+    printv("Fold {}: Pos/neg suprathreshold edges (max r pos/max r neg): {}/{} ({}/{})".format(fold+1, suprathr_edges_mask['pos'].sum(), suprathr_edges_mask['neg'].sum(), pcorr_df['r'].max(), pcorr_df['r'].min()))
+    for tail in ('pos', 'neg'):
+        masks_dict[fold][tail] = np.zeros(n_edges)
+        masks_dict[fold][tail][:] = suprathr_edges_mask[tail].astype(bool)
+
+  return masks_dict
+
 def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
-  n_folds = len(df_dict[perm])
-  n_edges = len(df_dict[perm][0])
+  folds_list = list(df_dict[perm].keys())
+  n_folds = len(folds_list)
+  n_edges = len(df_dict[perm][folds_list[0]])
   all_masks = {}
   all_masks['pos'] = np.zeros((n_folds, n_edges))
   all_masks['neg'] = np.zeros((n_folds, n_edges))
   
-  for fold in range(n_folds):
+  for fold in folds_list:
     pcorr_df = df_dict[perm][fold]
     suprathr_edges_mask = {}
     if p_thresh_pos and p_thresh_neg:
@@ -374,11 +412,11 @@ class RayHandler:
     results = self.get_results(self.out_queue)
     n = 1
     N = len(results)
+    printv("\n")
     for result in results:
         fold = result[0]
         perm = result[1]
         df = result[2]
-        printv("\n")
         printv("Rearranging result {} of {}".format(n, N), update=True)
         self.fselection_results[perm][fold] = df        
         n += 1
