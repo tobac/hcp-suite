@@ -1,8 +1,6 @@
 import sys
-sys.path.append("/home/sc.uni-leipzig.de/ty046wyna/hcp-suite/lib")
 import ray
 from ray.util.queue import Queue
-#from cpm_cov import *
 import numpy as np
 import pandas as pd
 from time import sleep
@@ -341,6 +339,7 @@ class RayHandler:
     self.report_queue = Queue()
     
     self.status_dict = {}
+    self.actors_list = []
     
     # Create dictionaries to keep results (it makes sense to do this class-wide to add results on-the-fly and for later reference if get results functions are called too early for example
     self.fselection_results = {}
@@ -380,6 +379,22 @@ class RayHandler:
   def start_workers(self, n_workers):
     printv("Starting {} workers".format(n_workers))
     self.workers = [RayWorker.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue) for _ in range(n_workers)]
+
+  def start_actors(self):
+    qsize = self.in_queue.qsize()
+    printv("Starting actors for {} jobs...".format(qsize))
+    self.actors = [RayActor.remote(
+        self.data_object,
+        self.in_queue,
+        self.out_queue,
+        self.status_queue)
+    for _ in range(qsize)]
+    
+  def start_fselection(self, train_subs, fold, perm):
+    actor = RayActor.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue, auto_start=False)
+    object = actor.edgewise_pcorr.remote(train_subs, fold, perm) # We don't need to keep
+    # the object as results are sent to out_queue
+    self.actors_list.append(actor)
     
   def submit_fselection(self, train_subs, fold, perm=-1):
     # perm=-1 means original data and is the default
@@ -442,11 +457,10 @@ class RayHandler:
       msg = status_list[2]
       self.status_dict[pid] = {"msg": msg, "node": node}
     n = 1
-    N_workers = len(self.status_dict)
-    width = len(str(N_workers))
     for pid, info in self.status_dict.items():
-        print("Worker {}/{} [{}@{}]: {}".format(str(n).zfill(width), N_workers, pid, info['node'], info['msg']))
-        n += 1
+        if(info['msg']): # Only print alive workers (-> msg != None)
+            print("Worker {} [{}@{}]: {}".format(n, pid, info['node'], info['msg']))
+            n += 1
     print("\n")
     out_size = self.out_queue.qsize()
     in_size = self.in_queue.qsize()
@@ -457,10 +471,11 @@ class RayHandler:
         
   def terminate(self):
     ray.shutdown()
+
     
-@ray.remote
-class RayWorker:
-  def __init__(self, data, in_queue, out_queue, status_queue):
+@ray.remote(num_cpus=1)
+class RayActor:
+  def __init__(self, data, in_queue, out_queue, status_queue, auto_start=True):
     
     self.data = data
     
@@ -471,10 +486,10 @@ class RayWorker:
     self.node = socket.gethostname()
     self.pid = os.getpid()
     
-    self.in_queue_listener() # Listen for jobs
+    if auto_start:
+        self.get_job()
     
-  def in_queue_listener(self):
-    while True:
+  def get_job(self):
       self.status_update("Listening for jobs...")
       while self.in_queue.empty():
         sleep(0.5)
@@ -538,7 +553,8 @@ class RayWorker:
       n += 1
     self.status_update("Assembling data frame...")
     self.out_queue.put([fold, perm, pd.concat(corr_dfs)]) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
-    self.status_update("Listening for jobs...")
+    self.status_update(None)
+    ray.actor.exit_actor() # Exit so memory gets freed up and no substantial memory leak happens
 
   def predict(self, mask_dict, kfold_indices_train, kfold_indices_test, perm):
     train_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['edges']])
@@ -558,6 +574,7 @@ class RayWorker:
     behav_pred["test_IDs"] = kfold_indices_test # Debug
     behav_pred["perm"] = perm # Debug
     self.out_queue.put(behav_pred)
+    ray.actor.exit_actor() # MAYBE NOT NECESSARY AS NO MEMORY LEAK WAS OBSERVED DURING PREDICITON -> we could reuse actor by calling self.get_job()
         
   def build_models(self, mask_dict, train_vcts, train_behav):
     """
