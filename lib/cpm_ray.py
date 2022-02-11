@@ -514,7 +514,7 @@ class RayActor:
         raise TypeError('Ill-defined job type.')
   
   def status_update(self, msg):
-    self.status_queue.put([self.pid, self.node, msg])
+    self.status_queue.put([self.pid, self.node, msg], timeout=20)
         
   def edgewise_pcorr(self, train_subs, fold, perm, method='pearson'):
     corr_dfs = [] # Appending to list and then creating dataframe is substantially faster than appending to dataframe
@@ -552,7 +552,7 @@ class RayActor:
         percent = percent_new
       n += 1
     self.status_update("Assembling data frame...")
-    self.out_queue.put([fold, perm, pd.concat(corr_dfs)]) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
+    self.out_queue.put([fold, perm, pd.concat(corr_dfs)], timeout=60) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
     self.status_update(None)
     ray.actor.exit_actor() # Exit so memory gets freed up and no substantial memory leak happens
 
@@ -573,7 +573,7 @@ class RayActor:
     behav_pred["train_IDs"] = kfold_indices_train # Debug
     behav_pred["test_IDs"] = kfold_indices_test # Debug
     behav_pred["perm"] = perm # Debug
-    self.out_queue.put(behav_pred)
+    self.out_queue.put(behav_pred, timeout=20)
     ray.actor.exit_actor() # MAYBE NOT NECESSARY AS NO MEMORY LEAK WAS OBSERVED DURING PREDICITON -> we could reuse actor by calling self.get_job()
         
   def build_models(self, mask_dict, train_vcts, train_behav):
