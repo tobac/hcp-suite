@@ -435,7 +435,7 @@ class RayHandler:
         printv("Rearranging result {} of {}".format(n, N), update=True)
         self.fselection_results[perm][fold] = df        
         n += 1
-    return self.fselection_results
+    #return self.fselection_results
 
   def get_prediction_results(self):
       results = self.get_results(self.out_queue)
@@ -464,7 +464,7 @@ class RayHandler:
     print("\n")
     out_size = self.out_queue.qsize()
     in_size = self.in_queue.qsize()
-    print("Jobs done: {}".format(out_size))
+    print("Jobs done: {} ({} %)".format(out_size, round((in_size/(in_size + out_size))*100)))
     print("Jobs remaining in queue: {}".format(in_size))
     
     return out_size, in_size
@@ -488,11 +488,14 @@ class RayActor:
     
     if auto_start:
         self.get_job()
+  def exit(self):
+      self.status_update(None)
+      ray.actor.exit_actor()
     
   def get_job(self):
       self.status_update("Listening for jobs...")
-      while self.in_queue.empty():
-        sleep(0.5)
+      if self.in_queue.empty():
+        self.exit()
       self.status_update("Receiving job from queue...")
       obj_list = self.in_queue.get()
       job_type = obj_list[0]
@@ -553,8 +556,7 @@ class RayActor:
       n += 1
     self.status_update("Assembling data frame...")
     self.out_queue.put([fold, perm, pd.concat(corr_dfs)], timeout=60) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
-    self.status_update(None)
-    ray.actor.exit_actor() # Exit so memory gets freed up and no substantial memory leak happens
+    self.exit() # Exit so memory gets freed up and no substantial memory leak happens
 
   def predict(self, mask_dict, kfold_indices_train, kfold_indices_test, perm):
     train_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['edges']])
@@ -574,7 +576,8 @@ class RayActor:
     behav_pred["test_IDs"] = kfold_indices_test # Debug
     behav_pred["perm"] = perm # Debug
     self.out_queue.put(behav_pred, timeout=20)
-    ray.actor.exit_actor() # MAYBE NOT NECESSARY AS NO MEMORY LEAK WAS OBSERVED DURING PREDICITON -> we could reuse actor by calling self.get_job()
+    self.exit() # MAYBE NOT NECESSARY AS NO MEMORY LEAK WAS OBSERVED DURING PREDICITON -> we could reuse actor by calling self.get_job()
+    #self.get_job() # -> yes -> no, because we start a number of actors with size = in_queue.qsize()
         
   def build_models(self, mask_dict, train_vcts, train_behav):
     """
