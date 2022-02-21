@@ -330,6 +330,8 @@ def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r
 
 class RayHandler:
   def __init__(self, fc_data, behav_data, behav, covars, n_perm=0, **ray_kwargs):
+    self.behav_data = behav_data # For adding kfold_indices
+    
     ray.shutdown() # Make sure Ray is only initialised once
     self.ray_info = ray.init(**ray_kwargs)
 
@@ -369,6 +371,14 @@ class RayHandler:
     else:
       self.data_dict['data'][behav] = behav_data[behav]
     self.data_dict['data'].columns = self.data_dict['data'].columns.astype(str)
+  
+  def add_kfold_indices(self, n_folds, clean=True):
+    subject_ids = self.data_dict['data'].index
+    kfold_indices = get_kfold_indices(subject_ids, n_folds)
+    if clean:
+        kfold_indices = clean_kfold_indices(kfold_indices, self.behav_data)
+    self.data_dict['kfold_indices'] = kfold_indices
+    printv("You need to (re-) upload data after this operation.")
     
   def upload_data(self):
     # Allows us to manipulate data in-class before uploading
@@ -390,7 +400,7 @@ class RayHandler:
         self.status_queue)
     for _ in range(qsize)]
     
-  def start_fselection(self, train_subs, fold, perm):
+  def start_fselection(self, train_subs, fold, perm): # OUTDATED
     actor = RayActor.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue, auto_start=False)
     object = actor.edgewise_pcorr.remote(train_subs, fold, perm) # We don't need to keep
     # the object as results are sent to out_queue
@@ -464,7 +474,7 @@ class RayHandler:
     print("\n")
     out_size = self.out_queue.qsize()
     in_size = self.in_queue.qsize()
-    print("Jobs done: {} ({} %)".format(out_size, round((in_size/(in_size + out_size))*100)))
+    print("Jobs done: {}".format(out_size))
     print("Jobs remaining in queue: {}".format(in_size))
     
     return out_size, in_size
@@ -499,23 +509,48 @@ class RayActor:
       self.status_update("Receiving job from queue...")
       obj_list = self.in_queue.get()
       job_type = obj_list[0]
+      fold = obj_list[1]
+      perm = obj_list[2]
+      try:
+          obj = obj_list[3] # This was added to optionally supply train_subs manually (for debugging or learning purposes); when predicting, a mask _has_ to be supplied
+      except IndexError:
+          obj = None
     
       if job_type == 'fselection':
-        train_subs = obj_list[1]
-        fold = obj_list[2]
-        perm = obj_list[3]
-        self.edgewise_pcorr(train_subs, fold, perm) 
+        fselection_result = self.do_fselection(fold, perm, train_subs=obj)
+        self.out_queue.put([fold, perm, fselection_result], timeout=60) 
+        self.exit() # Exit so memory gets freed up and no substantial memory leak happens
       elif job_type == 'prediction':
-        mask = obj_list[1]
-        kfold_indices_train = obj_list[2]
-        kfold_indices_test = obj_list[3]
-        fold = obj_list[4]
-        perm = obj_list[5]
-        self.status_update("Predicting fold {}...".format(fold+1)) # No detailed update needed, so once is sufficient
-        self.predict(mask, kfold_indices_train, kfold_indices_test, perm)
+        prediction_result = self.do_prediction(fold, perm, mask=obj)
+        self.out_queue.put(prediction_result, timeout=20)
+        self.exit()
+      elif job_type == 'fselection_and_prediction':
+        fselection_result = self.do_fselection(fold, perm, train_subs=obj)
+        mask = get_suprathr_edges_new(fselection_result[perm], p_thresh_pos=0.001, p_thresh_neg=0.001) # TODO: Make this configurable via **kwargs or something (or as an option in data_dict?)
+        prediction_result = self.do_prediction(fold, perm, mask=obj)
+        self.out_queue.put(prediction_result, timeout=20)
+        self.exit()  
       else:
         raise TypeError('Ill-defined job type.')
   
+  def do_fselection(self, fold, perm, train_subs=None):
+      if not train_subs: # Get train_subs from uploaded database if not supplied
+          train_subs = data['kfold_indices']['train'][fold]
+      fselection_result = self.edgewise_pcorr(train_subs, fold, perm)
+        
+      return fselection_result
+  
+  def do_prediction(self, fold, perm, mask=None):
+      if not mask:
+          raise ValueError("A mask needs to be supplied in the job description.")
+      train_subs = data['kfold_indices']['train'][fold]
+      test_subs = data['kfold_indices']['test'][fold]
+      self.status_update("Predicting fold {}...".format(fold+1)) # No detailed update needed, so once is sufficient
+      prediction_result = self.predict(mask, kfold_indices_train, kfold_indices_test, perm)
+      
+      return prediction_result
+    
+    
   def status_update(self, msg):
     self.status_queue.put([self.pid, self.node, msg], timeout=20)
         
@@ -555,8 +590,8 @@ class RayActor:
         percent = percent_new
       n += 1
     self.status_update("Assembling data frame...")
-    self.out_queue.put([fold, perm, pd.concat(corr_dfs)], timeout=60) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
-    self.exit() # Exit so memory gets freed up and no substantial memory leak happens
+    combined_corr_dfs = pd.concat(corr_dfs) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
+    return combined_corr_dfs
 
   def predict(self, mask_dict, kfold_indices_train, kfold_indices_test, perm):
     train_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['edges']])
@@ -575,10 +610,10 @@ class RayActor:
     behav_pred["train_IDs"] = kfold_indices_train # Debug
     behav_pred["test_IDs"] = kfold_indices_test # Debug
     behav_pred["perm"] = perm # Debug
-    self.out_queue.put(behav_pred, timeout=20)
-    self.exit() # MAYBE NOT NECESSARY AS NO MEMORY LEAK WAS OBSERVED DURING PREDICITON -> we could reuse actor by calling self.get_job()
-    #self.get_job() # -> yes -> no, because we start a number of actors with size = in_queue.qsize()
+    
+    return behav_pred
         
+    
   def build_models(self, mask_dict, train_vcts, train_behav):
     """
     Takes a feature mask, sums all edges in the mask for each subject, and uses simple linear 
