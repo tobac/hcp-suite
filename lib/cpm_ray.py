@@ -489,7 +489,7 @@ class RayHandler:
   def terminate(self):
     ray.shutdown()
 
-@ray.remote()
+@ray.remote
 class AutoSaveActor:
     def  __init__(self, path, ray_handler, save_size, type='prediction'):
         while True:
