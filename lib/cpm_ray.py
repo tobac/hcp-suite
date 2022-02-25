@@ -328,6 +328,13 @@ def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r
   
   return all_masks
 
+  def start_autosave(path, ray_handler, save_size=1000):
+      from ray.util.ml_utils.node import force_on_current_node
+      AutoSaveActor = force_on_current_node(AutoSaveActor)
+      autosave_actor = AutoSaveActor.remote(path, ray_handler, save_size)
+
+      return autosave_actor
+
 class RayHandler:
   def __init__(self, fc_data, behav_data, behav, covars, n_perm=0, **ray_kwargs):
     self.behav_data = behav_data # For adding kfold_indices
@@ -481,6 +488,20 @@ class RayHandler:
         
   def terminate(self):
     ray.shutdown()
+
+@ray.remote()
+class AutoSaveActor:
+    def  __init__(self, path, ray_handler, save_size, type='prediction'):
+        while True:
+            if ray_handler.out_queue.qsize() >= save_size:
+                if type == 'prediction':
+                    result = ray_handler.get_prediction_results()
+                elif type == 'fselection':
+                    result = ray_handler.get_fselection_results()
+                else:
+                    raise TypeError("type needs to be either prediction or fselection")
+                np.save(path, result)
+            sleep(5)
 
     
 @ray.remote(num_cpus=1)
