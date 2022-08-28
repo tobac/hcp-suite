@@ -360,7 +360,6 @@ class RayHandler:
       behav_df = behav_data[behav].to_frame()
       for perm in range(n_perm):
         behav_df["{}-perm-{}".format(behav, perm)] = np.random.permutation(behav_df[behav])
-        self.fselection_results[perm] = {} # Create sub-dictionaries to keep fselection results for permutations
       behav_df = behav_df.copy()
       # To avaid fragmentation (and the corresponding warning), consolidate into a 
       # new DataFrame)
