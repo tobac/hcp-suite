@@ -435,22 +435,14 @@ class RayHandler:
       return self.prediction_results
 
   def status(self, verbose=True):
-    N = self.status_queue.size()
-    status_list_list = self.status_queue.get_nowait_batch(N)
-    printv("Retrieving {} items from status queue...".format(N))
-    for status_list in status_list_list:
-      pid = status_list[0]
-      node = status_list[1]
-      msg = status_list[2]
-      self.status_dict[pid] = {"msg": msg, "node": node}
-    n = 1
+    self.status_dict = ray.get(self.status_actor.get_status.remote())
     for pid, info in self.status_dict.items():
         if(info['msg']): # Only print alive actors (-> msg != None)
             print("Actor {} [{}@{}]: {}".format(n, pid, info['node'], info['msg']))
             n += 1
     print("\n")
-    n_done = len(status_dict)
-    n_remaining = len(self.job_list) - len(status_dict)
+    n_done = len(self.status_dict)
+    n_remaining = len(self.job_list) - len(self.status_dict)
     print("Jobs done: {}".format(n_done))
     print("Jobs remaining: {}".format(n_remaining))
     
@@ -526,25 +518,24 @@ class ResultsActor:
 class RayActor:
     def __init__(self, data, job, status_actor, results_actor):
         self.data = data
-        self.job = job
         self.status_actor = status_actor
         self.results_actor = results_actor
 
         self.node = socket.gethostname()
         self.pid = os.getpid()
     
-        self.start_job()
+        self.start_job(job)
 
     def exit(self):
         self.status_update(None)
         ray.actor.exit_actor()
     
-    def start_job(self):
+    def start_job(self, job):
         job_type = job[0]
         fold = job[1]
         perm = job[2]
         try:
-            obj = self.job[3] # This was added to optionally supply train_subs manually (for debugging or learning purposes); when predicting, a mask _has_ to be supplied
+            obj = job[3] # This was added to optionally supply train_subs manually (for debugging or learning purposes); when predicting, a mask _has_ to be supplied
         except IndexError:
             obj = None
     
