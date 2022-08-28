@@ -483,9 +483,9 @@ class ResultsActor:
         Receives result from worker, determines type of result and calls the appropriate
         processing function
         """
-        if type(result) == 'list':
+        if type(results) == 'list':
             process_fselection_results(results)
-        elif type(result) == 'dict':
+        elif type(results) == 'dict':
             process_prediction_results(results)
 
     def process_fselection_results(self, results):
