@@ -390,48 +390,12 @@ class RayHandler:
     self.job_list.extend(job_list)
     self.actors = [RayActor.remote(self.data_object, job, self.status_actor, self.results_actor) for job in job_list]
     
-  def get_results(self, queue, n=100):
-      """
-      Common get function utilised by get_{prediction,fselection}_results
-      Input: queue to get from, max number of items to get at once
-      Output: combined results
-      """
-      N_total = 0
-      results = []
-      while not queue.empty():
-          N = queue.qsize()
-          if N_total < N:
-            N_total = N
-          if N < n: # To provide some sort of progress display, it makes sense to split
-              n = N
-          printv("Retrieving results: {} of {}".format(len(results)+n, N_total), update=True)
-          items = queue.get_nowait_batch(n)
-          for item in items:
-              results.append(item)
-      return results
-        
   def get_fselection_results(self):
-    results = self.get_results(self.out_queue)
-    n = 1
-    N = len(results)
-    printv("\n")
-    for result in results:
-        fold = result[0]
-        perm = result[1]
-        df = result[2]
-        printv("Rearranging result {} of {}".format(n, N), update=True)
-        self.fselection_results[perm][fold] = df        
-        n += 1
-    #return self.fselection_results
+      self.fselection_results = ray.get(self.results_actor.get_fselection_results.remote())
+      return self.fselection_results
 
   def get_prediction_results(self):
-      results = self.get_results(self.out_queue)
-      for results_dict in results:
-          if results_dict['perm'] not in self.prediction_results:
-              self.prediction_results[results_dict['perm']] = pd.DataFrame()
-              self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
-          for tail in ('pos', 'neg', 'glm'):
-              self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
+      self.prediction_results = ray.get(self.results_actor.get_prediction_results.remote())
       return self.prediction_results
 
   def status(self, verbose=True):
@@ -507,10 +471,10 @@ class ResultsActor:
                 self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
 
     def get_fselection_results(self):
-        return fselection_results
+        return self.fselection_results
 
     def get_prediction_results(self):
-        return prediction_results
+        return self.prediction_results
 
     def exit(self):
         ray.actor.exit_actor()
