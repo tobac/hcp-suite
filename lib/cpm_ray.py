@@ -435,6 +435,7 @@ class RayHandler:
       return self.prediction_results
 
   def status(self, verbose=True):
+    n = 1
     self.status_dict = ray.get(self.status_actor.get_status.remote())
     for pid, info in self.status_dict.items():
         if(info['msg']): # Only print alive actors (-> msg != None)
