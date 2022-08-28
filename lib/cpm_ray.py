@@ -533,7 +533,7 @@ class RayActor:
         self.node = socket.gethostname()
         self.pid = os.getpid()
     
-        self.start_job
+        self.start_job()
 
     def exit(self):
         self.status_update(None)
