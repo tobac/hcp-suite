@@ -463,9 +463,9 @@ class ResultsActor:
         Receives result from worker, determines type of result and calls the appropriate
         processing function
         """
-        if type(results) == 'list':
+        if type(results) == list:
             self.fselection_results.append(results)
-        elif type(results) == 'dict':
+        elif type(results) == dict:
             self.process_prediction_results.append(results)
         else: # Make sure no results are lost
             self.fselection_results.append(results)
@@ -477,7 +477,7 @@ class ResultsActor:
         return self.prediction_results
 
     def get_size(self):
-        size = len(self.fselection_results.items()) + len(self.prediction_results.items())
+        size = len(self.fselection_results) + len(self.prediction_results)
         return size
 
     def exit(self):
