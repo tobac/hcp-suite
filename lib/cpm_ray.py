@@ -338,7 +338,10 @@ def start_autosave(path, ray_handler, save_size=1000):
 class RayHandler:
   def __init__(self, fc_data, behav_data, behav, covars, n_perm=0, **ray_kwargs):
     self.behav_data = behav_data # For adding kfold_indices
-    
+    self.fselection_results = {}
+    self.fselection_results[-1] = {} # Create sub-dictionary for original (i.e. non-permuted) data
+    self.prediction_results = {}
+
     ray.shutdown() # Make sure Ray is only initialised once
     self.ray_info = ray.init(**ray_kwargs)
 
@@ -392,12 +395,26 @@ class RayHandler:
     
   def get_fselection_results(self):
       results = ray.get(self.results_actor.get_fselection_results.remote())
-      self.fselection_results.update(results)
+      n = 1
+      N = len(results)
+      for result in results:
+          fold = result[0]
+          perm = result[1]
+          df = result[2]
+          self.fselection_results[perm][fold] = df
+          n += 1
       return self.fselection_results
+
+    def process_prediction_results(self, results):
 
   def get_prediction_results(self):
       results = ray.get(self.results_actor.get_prediction_results.remote())
-      self.prediction_results.update(results)
+      for results_dict in results:
+          if results_dict['perm'] not in self.prediction_results:
+              self.prediction_results[results_dict['perm']] = pd.DataFrame()
+              self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
+          for tail in ('pos', 'neg', 'glm'):
+              self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
       return self.prediction_results
 
   def status(self, verbose=True):
@@ -408,8 +425,8 @@ class RayHandler:
             print("Actor {} [{}@{}]: {}".format(n, pid, info['node'], info['msg']))
             n += 1
     print("\n")
-    n_done = len(self.status_dict)
-    n_remaining = len(self.job_list) - len(self.status_dict)
+    n_done = ray.get(self.results_actor.get_size.remote())
+    n_remaining = len(self.job_list) - n_done
     print("Jobs done: {}".format(n_done))
     print("Jobs remaining: {}".format(n_remaining))
     
@@ -440,9 +457,8 @@ class ResultsActor:
     def __init__(self):
         # Create dictionaries to keep results (it makes sense to do this class-wide to add results on-the-fly
         # and for later reference if get results functions are called too early for example
-        self.fselection_results = {}
-        self.fselection_results[-1] = {} # Create sub-dictionary for original (i.e. non-permuted) data
-        self.prediction_results = {}
+        self.fselection_results = []
+        self.prediction_results = []
 
     def send(self, results):
         """
@@ -450,27 +466,11 @@ class ResultsActor:
         processing function
         """
         if type(results) == 'list':
-            self.process_fselection_results(results)
+            self.fselection_results.append(results)
         elif type(results) == 'dict':
-            self.process_prediction_results(results)
-
-    def process_fselection_results(self, results):
-        n = 1
-        N = len(results)
-        for result in results:
-            fold = result[0]
-            perm = result[1]
-            df = result[2]
-            self.fselection_results[perm][fold] = df
-            n += 1
-
-    def process_prediction_results(self, results):
-        for results_dict in results:
-            if results_dict['perm'] not in self.prediction_results:
-                self.prediction_results[results_dict['perm']] = pd.DataFrame()
-                self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
-            for tail in ('pos', 'neg', 'glm'):
-                self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
+            self.process_prediction_results.append(results)
+        else: # Make sure no results are lost
+            self.fselection_results.append(results)
 
     def get_fselection_results(self):
         return self.fselection_results
@@ -479,7 +479,7 @@ class ResultsActor:
         return self.prediction_results
 
     def get_size(self):
-        size = len(self.fselection_results) + len(self.prediction_results)
+        size = len(self.fselection_results.items()) + len(self.prediction_results.items())
         return size
 
     def exit(self):
