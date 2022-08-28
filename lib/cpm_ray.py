@@ -466,7 +466,7 @@ class ResultsActor:
         if type(results) == list:
             self.fselection_results.append(results)
         elif type(results) == dict:
-            self.process_prediction_results.append(results)
+            self.prediction_results.append(results)
         else: # Make sure no results are lost
             self.fselection_results.append(results)
 
