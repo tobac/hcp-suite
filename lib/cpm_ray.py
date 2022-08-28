@@ -328,12 +328,12 @@ def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r
   
   return all_masks
 
-  def start_autosave(path, ray_handler, save_size=1000):
-      from ray.util.ml_utils.node import force_on_current_node
-      AutoSaveActor = force_on_current_node(AutoSaveActor)
-      autosave_actor = AutoSaveActor.remote(path, ray_handler, save_size)
+def start_autosave(path, ray_handler, save_size=1000):
+    from ray.util.ml_utils.node import force_on_current_node
+    AutoSaveActor = force_on_current_node(AutoSaveActor)
+    autosave_actor = AutoSaveActor.remote(path, ray_handler, save_size)
 
-      return autosave_actor
+    return autosave_actor
 
 class RayHandler:
   def __init__(self, fc_data, behav_data, behav, covars, n_perm=0, **ray_kwargs):
@@ -342,18 +342,8 @@ class RayHandler:
     ray.shutdown() # Make sure Ray is only initialised once
     self.ray_info = ray.init(**ray_kwargs)
 
-    self.in_queue = Queue()
-    self.out_queue = Queue()
-    self.status_queue = Queue()
-    self.report_queue = Queue()
-    
-    self.status_dict = {}
     self.actors_list = []
-    
-    # Create dictionaries to keep results (it makes sense to do this class-wide to add results on-the-fly and for later reference if get results functions are called too early for example
-    self.fselection_results = {}
-    self.fselection_results[-1] = {} # Create sub-dictionary for original (i.e. non-permuted) data
-    self.prediction_results = {}
+    self.job_list = []
 
     self.data_dict = {}
     self.data_dict['behav'] = behav
@@ -378,6 +368,9 @@ class RayHandler:
     else:
       self.data_dict['data'][behav] = behav_data[behav]
     self.data_dict['data'].columns = self.data_dict['data'].columns.astype(str)
+
+    self.status_actor = StatusActor.remote()
+    self.results_actor = ResultsActor.remote()
   
   def add_kfold_indices(self, n_folds, clean=True):
     subject_ids = self.data_dict['data'].index
@@ -392,33 +385,11 @@ class RayHandler:
     # TODO: Put this and start_workers function in __init__() again? -> No, permutation
     # and post-festum data manipulation!
     self.data_object = ray.put(self.data_dict)
-    
-  def start_workers(self, n_workers):
-    printv("Starting {} workers".format(n_workers))
-    self.workers = [RayWorker.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue) for _ in range(n_workers)]
 
-  def start_actors(self):
-    qsize = self.in_queue.qsize()
-    printv("Starting actors for {} jobs...".format(qsize))
-    self.actors = [RayActor.remote(
-        self.data_object,
-        self.in_queue,
-        self.out_queue,
-        self.status_queue)
-    for _ in range(qsize)]
-    
-  def start_fselection(self, train_subs, fold, perm): # OUTDATED
-    actor = RayActor.remote(self.data_object, self.in_queue, self.out_queue, self.status_queue, auto_start=False)
-    object = actor.edgewise_pcorr.remote(train_subs, fold, perm) # We don't need to keep
-    # the object as results are sent to out_queue
-    self.actors_list.append(actor)
-    
-  def submit_fselection(self, train_subs, fold, perm=-1):
-    # perm=-1 means original data and is the default
-    self.in_queue.put(['fselection', train_subs, fold, perm])
-  
-  def submit_prediction(self, mask, kfold_indices_train, kfold_indices_test, fold, perm=-1):
-    self.in_queue.put(['prediction', mask, kfold_indices_train, kfold_indices_test, fold, perm])
+  def start_actors(self, job_list):
+    printv("Starting actors for {} jobs ...".format(len(job_list)))
+    self.job_list.extend(job_list)
+    self.actors = [RayActor.remote(self.data_object, job, self.status_actor, self.results_actor) for job in job_list]
     
   def get_results(self, queue, n=100):
       """
@@ -479,71 +450,107 @@ class RayHandler:
             print("Actor {} [{}@{}]: {}".format(n, pid, info['node'], info['msg']))
             n += 1
     print("\n")
-    out_size = self.out_queue.qsize()
-    in_size = self.in_queue.qsize()
-    print("Jobs done: {}".format(out_size))
-    print("Jobs remaining in queue: {}".format(in_size))
+    n_done = len(status_dict)
+    n_remaining = len(self.job_list) - len(status_dict)
+    print("Jobs done: {}".format(n_done))
+    print("Jobs remaining: {}".format(n_remaining))
     
-    return out_size, in_size
+    return n_done, n_remaining
         
   def terminate(self):
     ray.shutdown()
 
 @ray.remote
-class AutoSaveActor:
-    def  __init__(self, path, ray_handler, save_size, type='prediction'):
-        while True:
-            if ray_handler.out_queue.qsize() >= save_size:
-                if type == 'prediction':
-                    result = ray_handler.get_prediction_results()
-                elif type == 'fselection':
-                    result = ray_handler.get_fselection_results()
-                else:
-                    raise TypeError("type needs to be either prediction or fselection")
-                np.save(path, result)
-            sleep(5)
+class StatusActor:
+    def __init__(self):
+        self.status_dict = {}
+
+    def send(self, status):
+        pid = status[0]
+        node = status[1]
+        msg = status[2]
+        self.status_dict[pid] = {"msg": msg, "node": node}
+
+    def exit(self):
+        #self.event.set()
+        ray.actor.exit_actor()
+
+    def get_status(self):
+        return self.status_dict
+
+@ray.remote
+class ResultsActor:
+    def __init__(self):
+        # Create dictionaries to keep results (it makes sense to do this class-wide to add results on-the-fly
+        # and for later reference if get results functions are called too early for example
+        self.fselection_results = {}
+        self.fselection_results[-1] = {} # Create sub-dictionary for original (i.e. non-permuted) data
+        self.prediction_results = {}
+
+    def send(self, results):
+        """
+        Receives result from worker, determines type of result and calls the appropriate
+        processing function
+        """
+        if type(result) == 'list':
+            process_fselection_results(results)
+        elif type(result) == 'dict':
+            process_prediction_results(results)
+
+    def process_fselection_results(self, results):
+        n = 1
+        N = len(results)
+        printv("\n")
+        for result in results:
+            fold = result[0]
+            perm = result[1]
+            df = result[2]
+            printv("Rearranging result {} of {}".format(n, N), update=True)
+            self.fselection_results[perm][fold] = df
+            n += 1
+
+    def process_prediction_results(self, results):
+        for results_dict in results:
+            if results_dict['perm'] not in self.prediction_results:
+                self.prediction_results[results_dict['perm']] = pd.DataFrame()
+                self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
+            for tail in ('pos', 'neg', 'glm'):
+                self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
 
     
 @ray.remote(num_cpus=1)
 class RayActor:
-    def __init__(self, data, in_queue, out_queue, status_queue, auto_start=True):
-    
+    def __init__(self, data, job, status_actor, results_actor):
         self.data = data
-    
-        self.in_queue = in_queue
-        self.out_queue = out_queue
-        self.status_queue = status_queue
+        self.job = job
+        self.status_actor = status_actor
+        self.results_actor = results_actor
 
         self.node = socket.gethostname()
         self.pid = os.getpid()
     
-        if auto_start:
-            self.get_job()
+        self.start_job
+
     def exit(self):
         self.status_update(None)
         ray.actor.exit_actor()
     
-    def get_job(self):
-        self.status_update("Listening for jobs...")
-        if self.in_queue.empty():
-            self.exit()
-        self.status_update("Receiving job from queue...")
-        obj_list = self.in_queue.get()
-        job_type = obj_list[0]
-        fold = obj_list[1]
-        perm = obj_list[2]
+    def start_job(self):)
+        job_type = job[0]
+        fold = job[1]
+        perm = job[2]
         try:
-            obj = obj_list[3] # This was added to optionally supply train_subs manually (for debugging or learning purposes); when predicting, a mask _has_ to be supplied
+            obj = self.job[3] # This was added to optionally supply train_subs manually (for debugging or learning purposes); when predicting, a mask _has_ to be supplied
         except IndexError:
             obj = None
     
         if job_type == 'fselection':
             fselection_result = self.do_fselection(fold, perm, train_subs=obj)
-            self.out_queue.put([fold, perm, fselection_result], timeout=60) 
+            self.results_actor.send([fold, perm, fselection_result])
             self.exit() # Exit so memory gets freed up and no substantial memory leak happens
         elif job_type == 'prediction':
             prediction_result = self.do_prediction(fold, perm, mask=obj)
-            self.out_queue.put(prediction_result, timeout=20)
+            self.results_actor.send(prediction_result)
             self.exit()
         elif job_type == 'fselection_and_prediction':
             fselection_result = self.do_fselection(fold, perm, train_subs=obj)
@@ -551,11 +558,10 @@ class RayActor:
             self.status_update("Thresholding edges...")
             mask = self.get_suprathr_edges_new(df_dict, p_thresh_pos=0.001, p_thresh_neg=0.001) # TODO: Make this configurable via **kwargs or something (or as an option in data_dict?)
             prediction_result = self.do_prediction(fold, perm, mask=mask[fold])
-            self.out_queue.put(prediction_result, timeout=20)
-            self.exit()  
+            self.results_actor.send(prediction_result)
+            self.exit()
         else:
             raise TypeError('Ill-defined job type.')
-        
         
     def get_suprathr_edges_new(self, df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
         # We need to duplicate this here or "no module found" error will occur
@@ -601,7 +607,6 @@ class RayActor:
         
         return fselection_result
   
-
     def do_prediction(self, fold, perm, mask=None):
         if not mask:
             raise ValueError("A mask needs to be supplied in the job description.")
@@ -612,10 +617,8 @@ class RayActor:
       
         return prediction_result
     
-    
     def status_update(self, msg):
-        self.status_queue.put([self.pid, self.node, msg], timeout=20)
-     
+        self.status_actor.send([self.pid, self.node, msg])
     
     def edgewise_pcorr(self, train_subs, fold, perm, method='pearson'):
         corr_dfs = [] # Appending to list and then creating dataframe is substantially faster than appending to dataframe
