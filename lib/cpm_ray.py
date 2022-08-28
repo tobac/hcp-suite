@@ -471,7 +471,6 @@ class StatusActor:
         self.status_dict[pid] = {"msg": msg, "node": node}
 
     def exit(self):
-        #self.event.set()
         ray.actor.exit_actor()
 
     def get_status(self):
@@ -499,12 +498,10 @@ class ResultsActor:
     def process_fselection_results(self, results):
         n = 1
         N = len(results)
-        printv("\n")
         for result in results:
             fold = result[0]
             perm = result[1]
             df = result[2]
-            printv("Rearranging result {} of {}".format(n, N), update=True)
             self.fselection_results[perm][fold] = df
             n += 1
 
@@ -516,7 +513,15 @@ class ResultsActor:
             for tail in ('pos', 'neg', 'glm'):
                 self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
 
-    
+    def get_fselection_results(self):
+        return fselection_results
+
+    def get_prediction_results(self):
+        return prediction_results
+
+    def exit(self):
+        ray.actor.exit_actor()
+
 @ray.remote(num_cpus=1)
 class RayActor:
     def __init__(self, data, job, status_actor, results_actor):
