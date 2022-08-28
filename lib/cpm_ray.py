@@ -535,7 +535,7 @@ class RayActor:
         self.status_update(None)
         ray.actor.exit_actor()
     
-    def start_job(self):)
+    def start_job(self):
         job_type = job[0]
         fold = job[1]
         perm = job[2]
