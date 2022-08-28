@@ -405,8 +405,6 @@ class RayHandler:
           n += 1
       return self.fselection_results
 
-    def process_prediction_results(self, results):
-
   def get_prediction_results(self):
       results = ray.get(self.results_actor.get_prediction_results.remote())
       for results_dict in results:
