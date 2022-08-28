@@ -550,11 +550,11 @@ class RayActor:
     
         if job_type == 'fselection':
             fselection_result = self.do_fselection(fold, perm, train_subs=obj)
-            self.results_actor.send([fold, perm, fselection_result])
+            self.results_actor.send.remote([fold, perm, fselection_result])
             self.exit() # Exit so memory gets freed up and no substantial memory leak happens
         elif job_type == 'prediction':
             prediction_result = self.do_prediction(fold, perm, mask=obj)
-            self.results_actor.send(prediction_result)
+            self.results_actor.send.remote(prediction_result)
             self.exit()
         elif job_type == 'fselection_and_prediction':
             fselection_result = self.do_fselection(fold, perm, train_subs=obj)
@@ -562,7 +562,7 @@ class RayActor:
             self.status_update("Thresholding edges...")
             mask = self.get_suprathr_edges_new(df_dict, p_thresh_pos=0.001, p_thresh_neg=0.001) # TODO: Make this configurable via **kwargs or something (or as an option in data_dict?)
             prediction_result = self.do_prediction(fold, perm, mask=mask[fold])
-            self.results_actor.send(prediction_result)
+            self.results_actor.send.remote(prediction_result)
             self.exit()
         else:
             raise TypeError('Ill-defined job type.')
@@ -622,7 +622,7 @@ class RayActor:
         return prediction_result
     
     def status_update(self, msg):
-        self.status_actor.send([self.pid, self.node, msg])
+        self.status_actor.send.remote([self.pid, self.node, msg])
     
     def edgewise_pcorr(self, train_subs, fold, perm, method='pearson'):
         corr_dfs = [] # Appending to list and then creating dataframe is substantially faster than appending to dataframe
