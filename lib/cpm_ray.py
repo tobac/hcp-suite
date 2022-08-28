@@ -391,11 +391,13 @@ class RayHandler:
     self.actors = [RayActor.remote(self.data_object, job, self.status_actor, self.results_actor) for job in job_list]
     
   def get_fselection_results(self):
-      self.fselection_results = ray.get(self.results_actor.get_fselection_results.remote())
+      results = ray.get(self.results_actor.get_fselection_results.remote())
+      self.fselection_results.update(results)
       return self.fselection_results
 
   def get_prediction_results(self):
-      self.prediction_results = ray.get(self.results_actor.get_prediction_results.remote())
+      results = ray.get(self.results_actor.get_prediction_results.remote())
+      self.prediction_results.update(results)
       return self.prediction_results
 
   def status(self, verbose=True):
@@ -448,9 +450,9 @@ class ResultsActor:
         processing function
         """
         if type(results) == 'list':
-            process_fselection_results(results)
+            self.process_fselection_results(results)
         elif type(results) == 'dict':
-            process_prediction_results(results)
+            self.process_prediction_results(results)
 
     def process_fselection_results(self, results):
         n = 1
@@ -475,6 +477,10 @@ class ResultsActor:
 
     def get_prediction_results(self):
         return self.prediction_results
+
+    def get_size(self):
+        size = len(self.fselection_results) + len(self.prediction_results)
+        return size
 
     def exit(self):
         ray.actor.exit_actor()
