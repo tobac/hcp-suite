@@ -354,7 +354,7 @@ class RayHandler:
     self.data_dict['n_perm'] = n_perm
     self.data_dict['data'] = fc_data
     self.data_dict['edges'] = self.data_dict['data'].columns.astype(str) # Save edges columns before adding behavioral columns
-    # Pengouin needs all the data (edges, behav, and covars) in a single DataFrame
+    # Pingouin needs all the data (edges, behav, and covars) in a single DataFrame
     if covars:
       self.data_dict['data'][covars] = behav_data[covars]
     if n_perm > 0:
@@ -371,8 +371,16 @@ class RayHandler:
       self.data_dict['data'][behav] = behav_data[behav]
     self.data_dict['data'].columns = self.data_dict['data'].columns.astype(str)
 
-    self.status_actor = StatusActor.remote()
-    self.results_actor = ResultsActor.remote()
+    # Start status and results actor preferrably (status actor) or forcibly
+    # (results actor) on head node
+    self.status_actor = StatusActor.options(
+      scheduling_strategy=NodeAffinitySchedulingStrategy(
+      node_id = ray.get_runtime_context().node_id,
+      soft = True).remote()
+    self.results_actor = ResultsActor.options(
+      scheduling_strategy=NodeAffinitySchedulingStrategy(
+      node_id = ray.get_runtime_context().node_id,
+      soft = False).remote()
   
   def add_kfold_indices(self, n_folds, clean=True):
     subject_ids = self.data_dict['data'].index
@@ -383,9 +391,6 @@ class RayHandler:
     printv("You need to (re-) upload data after this operation.")
     
   def upload_data(self):
-    # Allows us to manipulate data in-class before uploading
-    # TODO: Put this and start_workers function in __init__() again? -> No, permutation
-    # and post-festum data manipulation!
     self.data_object = ray.put(self.data_dict)
 
   def start_actors(self, job_list):
