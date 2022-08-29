@@ -374,11 +374,11 @@ class RayHandler:
     # Start status and results actor preferrably (status actor) or forcibly
     # (results actor) on head node
     self.status_actor = StatusActor.options(
-      scheduling_strategy=NodeAffinitySchedulingStrategy(
+      scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
       node_id = ray.get_runtime_context().node_id,
       soft = True)).remote()
     self.results_actor = ResultsActor.options(
-      scheduling_strategy=NodeAffinitySchedulingStrategy(
+      scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
       node_id = ray.get_runtime_context().node_id,
       soft = False)).remote()
   
