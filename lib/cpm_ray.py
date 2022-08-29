@@ -376,11 +376,11 @@ class RayHandler:
     self.status_actor = StatusActor.options(
       scheduling_strategy=NodeAffinitySchedulingStrategy(
       node_id = ray.get_runtime_context().node_id,
-      soft = True).remote()
+      soft = True)).remote()
     self.results_actor = ResultsActor.options(
       scheduling_strategy=NodeAffinitySchedulingStrategy(
       node_id = ray.get_runtime_context().node_id,
-      soft = False).remote()
+      soft = False)).remote()
   
   def add_kfold_indices(self, n_folds, clean=True):
     subject_ids = self.data_dict['data'].index
