@@ -481,6 +481,9 @@ class ResultsActor:
     def get_prediction_results(self):
         return self.prediction_results
 
+    def save_prediction_results(self, path):
+        np.save(path, self.prediction_results)
+
     def get_size(self):
         size = len(self.fselection_results) + len(self.prediction_results)
         return size
