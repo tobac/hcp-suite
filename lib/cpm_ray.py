@@ -483,16 +483,17 @@ class ResultsActor:
         ro_return = self.prediction_results
       elif n > 0:
         to_return = self.prediction_results[0:n]
-        self.prediction_results.del[0:n]
+        del self.prediction_results[0:n]
+        self.prediction_results
       if compress:
         import zlib
-        to_return = zlib.compress(to_return)
+        to_return = zlib.compress(pickle.dumps(to_return))
       return to_return
 
     def save_prediction_results(self, path, compress=False):
         if compress: # For benchmarking purposes; in-build np.save compression function might be better in future TODO
           import zlib
-          np.save(path, zlib.compress(self.prediction_results))
+          np.save(path, zlib.compress(pickle.dumps(self.prediction_results)))
         else:
           np.save(path, self.prediction_results)
 
