@@ -478,11 +478,23 @@ class ResultsActor:
     def get_fselection_results(self):
         return self.fselection_results
 
-    def get_prediction_results(self):
-        return self.prediction_results
+    def get_prediction_results(self, n=-1, compress=False):
+      if n == -1:
+        ro_return = self.prediction_results
+      elif n > 0:
+        to_return = self.prediction_results[0:n]
+        self.prediction_results.del[0:n]
+      if compress:
+        import zlib
+        to_return = zlib.compress(to_return)
+      return to_return
 
-    def save_prediction_results(self, path):
-        np.save(path, self.prediction_results)
+    def save_prediction_results(self, path, compress=False):
+        if compress: # For benchmarking purposes; in-build np.save compression function might be better in future TODO
+          import zlib
+          np.save(path, zlib.compress(self.prediction_results))
+        else:
+          np.save(path, self.prediction_results)
 
     def get_size(self):
         size = len(self.fselection_results) + len(self.prediction_results)
