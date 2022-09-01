@@ -410,8 +410,8 @@ class RayHandler:
           n += 1
       return self.fselection_results
 
-  def get_prediction_results(self):
-      results = ray.get(self.results_actor.get_prediction_results.remote())
+  def get_prediction_results(self, **get_kwargs):
+      results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
       for results_dict in results:
           if results_dict['perm'] not in self.prediction_results:
               self.prediction_results[results_dict['perm']] = pd.DataFrame()
@@ -480,11 +480,10 @@ class ResultsActor:
 
     def get_prediction_results(self, n=-1, compress=False):
       if n == -1:
-        ro_return = self.prediction_results
+        to_return = self.prediction_results
       elif n > 0:
         to_return = self.prediction_results[0:n]
         del self.prediction_results[0:n]
-        self.prediction_results
       if compress:
         import zlib
         to_return = zlib.compress(pickle.dumps(to_return))
