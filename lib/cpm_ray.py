@@ -412,6 +412,9 @@ class RayHandler:
 
   def get_prediction_results(self, **get_kwargs):
       results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
+      if 'compress' in locals() and compress:
+          results = pickle.loads(zlib.decompress(results))
+
       for results_dict in results:
           if results_dict['perm'] not in self.prediction_results:
               self.prediction_results[results_dict['perm']] = pd.DataFrame()
