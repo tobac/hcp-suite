@@ -412,8 +412,9 @@ class RayHandler:
 
   def get_prediction_results(self, **get_kwargs):
       results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
-      if 'compress' in locals() and compress:
-          results = pickle.loads(zlib.decompress(results))
+      if 'compress' in **get_kwargs.keys() and compress:
+          import lz4.frame
+          results = pickle.loads(lz4.frame.decompress(results))
 
       for results_dict in results:
           if results_dict['perm'] not in self.prediction_results:
@@ -485,11 +486,13 @@ class ResultsActor:
       if n == -1:
         to_return = self.prediction_results
       elif n > 0:
+        if n < len(self.prediction_results):
+          n = len(self.prediction_results)
         to_return = self.prediction_results[0:n]
         del self.prediction_results[0:n]
       if compress:
-        import zlib
-        to_return = zlib.compress(pickle.dumps(to_return))
+        import lz4.frame
+        to_return = lz4.compress(pickle.dumps(to_return))
       return to_return
 
     def save_prediction_results(self, path, compress=False):
