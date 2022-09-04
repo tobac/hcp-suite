@@ -486,13 +486,10 @@ class ResultsActor:
 
     def get_prediction_results(self, n=-1, compress=False):
       n_results = len(self.prediction_results)
-      if n == -1:
+      if n < n_results: # 1. By default n = -1 and therefore n = n_results. 2. when n > 0 and less than requested results are available to receive, get only available results to avoid error
         n = n_results
-      elif n > 0:
-        if n < n_results:
-          n = n_results
-        to_return = self.prediction_results[0:n]
-        del self.prediction_results[0:n]
+      to_return = self.prediction_results[0:n]
+      del self.prediction_results[0:n]
       if compress:
         import lz4.frame
         to_return = lz4.frame.compress(pickle.dumps(to_return))
