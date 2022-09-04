@@ -412,7 +412,7 @@ class RayHandler:
 
   def get_prediction_results(self, **get_kwargs):
       results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
-      if 'compress' in **get_kwargs.keys() and compress:
+      if 'compress' in **get_kwargs.keys() and **get_kwargs['compress'] == True:
           import lz4.frame
           results = pickle.loads(lz4.frame.decompress(results))
 
