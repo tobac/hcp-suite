@@ -492,7 +492,7 @@ class ResultsActor:
         del self.prediction_results[0:n]
       if compress:
         import lz4.frame
-        to_return = lz4.compress(pickle.dumps(to_return))
+        to_return = lz4.frame.compress(pickle.dumps(to_return))
       return to_return
 
     def save_prediction_results(self, path, compress=False):
