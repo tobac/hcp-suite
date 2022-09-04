@@ -19,17 +19,17 @@ def get_behav_data(fname, ids=None):
   """
   Read behavioural data for specified IDs from CSV and return dataframe
   """
-  
+
   behav_data = pd.read_csv(fname, dtype={'Subject': str}, low_memory = False)
   behav_data.set_index('Subject', inplace=True)
   if ids:
     behav_data = behav_data.loc[ids] # Keep only data from specified subjects
-  
+
   return behav_data
 
 def convert_matrices_to_dataframe(array, subj_ids):
   """
-  Takes a NumPy array (subjects:parcels:parcels) and converts it into a Pandas dataframe fit 
+  Takes a NumPy array (subjects:parcels:parcels) and converts it into a Pandas dataframe fit
   for downstream CPM analyses
   """
   assert array.shape[0] == len(subj_ids), "Number of subject IDs is not equal to number of subjects in neuroimage file"
@@ -42,7 +42,7 @@ def convert_matrices_to_dataframe(array, subj_ids):
     n += 1
   printv("\nCreating DataFrame from matrices...")
   fc_data = pd.DataFrame.from_dict(fc_data, orient='index')
-  
+
   return fc_data
 
 def create_clean_upper_reshaped(matrix):
@@ -54,9 +54,9 @@ def create_clean_upper_reshaped(matrix):
   matrix = nifti_dim_to_cifti_dim(matrix)
   matrix[:, 99:512, 99:512] = 0
   matrix = np.triu(matrix)
-  
+
   return matrix
-  
+
 
 def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=None, **plot_kwargs):
     """Plots edges which are consistent in a defined percentage of folds"""
@@ -74,7 +74,7 @@ def plot_consistent_edges(all_masks, tail, thresh = 1., color='gray', coords=Non
                     display_mode= 'lzry',
                     edge_kwargs={"linewidth": 1, 'color': color},
                     **plot_kwargs)
-    
+
     return (edge_frac_square >= thresh).astype(int), node_mask
 
 def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', img_suffix='png', labels=None, color='red', check_for_symmetry=False):
@@ -85,12 +85,12 @@ def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', im
     """
     import networkx as nx
     from matplotlib import pyplot as plt
-    
+
     if img_naming_scheme == 'label' and not labels:
         raise ValueError("A list of labels needs to be specified if img_namingscheme is 'label'")
     elif labels:
         assert len(labels) == matrix.shape[0], "Number of labels does not match number of nodes"
-    
+
     if check_for_symmetry: # is_symmetric() is somewhat unreliable, therefore it is disabled by default
         if is_symmetric(matrix):
             matrix = np.tril(matrix) # Clear upper triangle in symmetric matrix to avoid duplicate edges
@@ -119,8 +119,8 @@ def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', im
                 img = plt.imread(fname)
                 G.nodes[node]['image'] = img
         G.add_edge(nodes[0], nodes[1], weight=round(top_n_values[n],6))
-        
-        # The next section relies heavily on https://stackoverflow.com/a/53968787      
+
+        # The next section relies heavily on https://stackoverflow.com/a/53968787
         pos = nx.planar_layout(G)
 
         fig = plt.figure(figsize=(8,4))
@@ -128,7 +128,7 @@ def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', im
         ax.set_aspect('equal')
         edge_labels = nx.get_edge_attributes(G, 'weight')
         nx.draw_networkx_edges(G, pos, ax=ax, edge_color=color)
-        nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=edge_labels) 
+        nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=edge_labels)
 
         plt.xlim(-0.9,0.9)
         plt.ylim(0.5,-0.5)
@@ -149,27 +149,27 @@ def plot_top_n_edges(matrix, top_n, img_base=None, img_naming_scheme='label', im
         #ax.text(0, 0.1, G.)
         ax.axis('off')
         figures.append(fig)
-        
+
     return figures
 
 def plot_top_n_nodes(degrees, top_n, parcellation_img, bg_img, n_slices=5, display_modes=['x', 'y', 'z']):
     n_nodes = len(degrees)
     top_n_nodes = np.argsort(degrees)[-top_n:]
-    
+
     new_data = np.zeros(parcellation_img.shape)
     for node in top_n_nodes:
-        # In a parcellation image, parcels = nodes are represented as neighbouring 
+        # In a parcellation image, parcels = nodes are represented as neighbouring
         # voxels with values corresponding to the parcel/node number
         new_data[rtg_data == node] = node
     new_img = nib.Nifti1Image(new_data, rtg.affine, rtg.header)
-    
+
     figures_dict = {}
     for display_mode in display_modes:
         plotting.plot_roi(new_img, cut_coords=5, display_mode=display_mode, bg_img=bg_img,     black_bg=False)
         figures_dict[display_mode] = plt.gcf()
-        
+
     return figures_dict
-    
+
 
 def plot_predictions(predictions, tail="glm", save=False, title=None, fname='predictions.svg', color='gray'):
     x = predictions['observed'].astype(float)
@@ -182,22 +182,22 @@ def plot_predictions(predictions, tail="glm", save=False, title=None, fname='pre
     g.set_ylim(ax_min, ax_max)
     g.set_aspect('equal', adjustable='box')
     g.set_title(title)
-    
+
     r = get_r_value(x, y)
     g.annotate('r = {0:.2f}'.format(r), xy = (0.7, 0.1), xycoords = 'axes fraction')
-    
+
     if save:
       fig = g.get_figure()
       fig.savefig(fname, bbox_inches="tight")
-    
+
     return g
-  
+
 def get_r_value(x, y):
   x[np.isnan(x)] = 0
   y[np.isnan(y)] = 0
-  
+
   r = sp.stats.pearsonr(x, y)[0]
-  
+
   return r
 
 def get_kfold_indices(subs_list, k):
@@ -210,17 +210,17 @@ def get_kfold_indices(subs_list, k):
   kfold_indices['train'] = []
   kfold_indices['test'] = []
   for train_index, test_index in kf.split(subs_list):
-    kfold_indices['train'].append(subs_array[train_index]) 
+    kfold_indices['train'].append(subs_array[train_index])
     kfold_indices['test'].append(subs_array[test_index])
-  
+
   return kfold_indices
 
 def clean_kfold_indices(kfold_indices, behav_data, noneb_group='Mother_ID'):
   """
   Cleans the train part of kfold indices of entries sharing the same group.
-  This was written to exclude closely related subjects in HCP data by using 
+  This was written to exclude closely related subjects in HCP data by using
   'Mother_ID' as the noneb_group (read: non-exchangeability group).
-  
+
   Returns the cleaned kfold_indices dictionary.
   """
   kfold_indices_clean = {} # Rebuilding from scratch seems easier than using copy.deepcopy()
@@ -239,7 +239,7 @@ def pcorr_dfs_to_rmat_pmat(pcorr_dfs):
   """
   Takes a list of correlation DataFrames (post-feature selection), extracts their
   p and r values and puts them in corresponding matrices.
-  
+
   Input: List of DataFrames
   Returns: r_mat and p_mat
   """
@@ -252,9 +252,9 @@ def pcorr_dfs_to_rmat_pmat(pcorr_dfs):
   for n in range(n_mats):
     r_mat[n] = sp.spatial.distance.squareform(pcorr_dfs[n]['r'])
     p_mat[n] = sp.spatial.distance.squareform(pcorr_dfs[n]['p-val'])
-  
+
   return r_mat, p_mat
-  
+
 
 def get_suprathr_edges_new(df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
   folds_list = list(df_dict.keys())
@@ -299,7 +299,7 @@ def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r
   all_masks = {}
   all_masks['pos'] = np.zeros((n_folds, n_edges))
   all_masks['neg'] = np.zeros((n_folds, n_edges))
-  
+
   for fold in folds_list:
     pcorr_df = df_dict[perm][fold]
     suprathr_edges_mask = {}
@@ -321,11 +321,11 @@ def get_suprathr_edges(df_dict, perm=-1, p_thresh_pos=None, p_thresh_neg=None, r
       suprathr_edges_mask['neg'][np.argpartition(pcorr_df['r'][pcorr_df['r'].notna()], top_n_neg)[:top_n_neg]] = 1
     else:
       raise TypeError('Either p_thresh_{neg, pos} or r_thresh_{neg, pos} or percentile_{neg, pos} or top_n_{pos, neg} needs to be defined.')
-    
+
     printv("Fold {}: Pos/neg suprathreshold edges (max r pos/max r neg): {}/{} ({}/{})".format(fold+1, suprathr_edges_mask['pos'].sum(), suprathr_edges_mask['neg'].sum(), pcorr_df['r'].max(), pcorr_df['r'].min()))
     all_masks['pos'][fold,:] = suprathr_edges_mask['pos'].astype(bool)
     all_masks['neg'][fold,:] = suprathr_edges_mask['neg'].astype(bool)
-  
+
   return all_masks
 
 def start_autosave(path, ray_handler, save_size=1000):
@@ -364,7 +364,7 @@ class RayHandler:
       for perm in range(n_perm):
         behav_df["{}-perm-{}".format(behav, perm)] = np.random.permutation(behav_df[behav])
       behav_df = behav_df.copy()
-      # To avaid fragmentation (and the corresponding warning), consolidate into a 
+      # To avaid fragmentation (and the corresponding warning), consolidate into a
       # new DataFrame)
       self.data_dict['data'] = pd.concat([self.data_dict['data'], behav_df], axis=1)
     else:
@@ -381,7 +381,7 @@ class RayHandler:
       scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
       node_id = ray.get_runtime_context().node_id,
       soft = False)).remote()
-  
+
   def add_kfold_indices(self, n_folds, clean=True):
     subject_ids = self.data_dict['data'].index
     kfold_indices = get_kfold_indices(subject_ids, n_folds)
@@ -389,7 +389,7 @@ class RayHandler:
         kfold_indices = clean_kfold_indices(kfold_indices, self.behav_data)
     self.data_dict['kfold_indices'] = kfold_indices
     printv("You need to (re-) upload data after this operation.")
-    
+
   def upload_data(self):
     self.data_object = ray.put(self.data_dict)
 
@@ -397,7 +397,7 @@ class RayHandler:
     printv("Starting actors for {} jobs ...".format(len(job_list)))
     self.job_list.extend(job_list)
     self.actors = [RayActor.remote(self.data_object, job, self.status_actor, self.results_actor) for job in job_list]
-    
+
   def get_fselection_results(self):
       results = ray.get(self.results_actor.get_fselection_results.remote())
       n = 1
@@ -412,7 +412,7 @@ class RayHandler:
 
   def get_prediction_results(self, **get_kwargs):
       results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
-      if 'compress' in **get_kwargs.keys() and **get_kwargs['compress'] == True:
+      if 'compress' in get_kwargs.keys() and get_kwargs['compress'] == True:
           import lz4.frame
           results = pickle.loads(lz4.frame.decompress(results))
 
@@ -436,9 +436,9 @@ class RayHandler:
     n_remaining = len(self.job_list) - n_done
     print("Jobs done: {}".format(n_done))
     print("Jobs remaining: {}".format(n_remaining))
-    
+
     return n_done, n_remaining
-        
+
   def terminate(self):
     ray.shutdown()
 
@@ -518,13 +518,13 @@ class RayActor:
 
         self.node = socket.gethostname()
         self.pid = os.getpid()
-    
+
         self.start_job(job)
 
     def exit(self):
         self.status_update(None)
         ray.actor.exit_actor()
-    
+
     def start_job(self, job):
         job_type = job[0]
         fold = job[1]
@@ -533,7 +533,7 @@ class RayActor:
             obj = job[3] # This was added to optionally supply train_subs manually (for debugging or learning purposes); when predicting, a mask _has_ to be supplied
         except IndexError:
             obj = None
-    
+
         if job_type == 'fselection':
             fselection_result = self.do_fselection(fold, perm, train_subs=obj)
             self.results_actor.send.remote([fold, perm, fselection_result])
@@ -552,7 +552,7 @@ class RayActor:
             self.exit()
         else:
             raise TypeError('Ill-defined job type.')
-        
+
     def get_suprathr_edges_new(self, df_dict, p_thresh_pos=None, p_thresh_neg=None, r_thresh_pos=None, r_thresh_neg=None, percentile_neg=None, percentile_pos=None, top_n_pos=None, top_n_neg=None):
         # We need to duplicate this here or "no module found" error will occur
         folds_list = list(df_dict.keys())
@@ -588,15 +588,15 @@ class RayActor:
                 masks_dict[fold][tail][:] = suprathr_edges_mask[tail].astype(bool)
 
         return masks_dict
-  
+
 
     def do_fselection(self, fold, perm, train_subs=None):
         if not train_subs: # Get train_subs from uploaded database if not supplied
             train_subs = self.data['kfold_indices']['train'][fold]
         fselection_result = self.edgewise_pcorr(train_subs, fold, perm)
-        
+
         return fselection_result
-  
+
     def do_prediction(self, fold, perm, mask=None):
         if not mask:
             raise ValueError("A mask needs to be supplied in the job description.")
@@ -604,22 +604,22 @@ class RayActor:
         test_subs = self.data['kfold_indices']['test'][fold]
         self.status_update("Predicting fold {}...".format(fold+1)) # No detailed update needed, so once is sufficient
         prediction_result = self.predict(mask, train_subs, test_subs, perm)
-      
+
         return prediction_result
-    
+
     def status_update(self, msg):
         self.status_actor.send.remote([self.pid, self.node, msg])
-    
+
     def edgewise_pcorr(self, train_subs, fold, perm, method='pearson'):
         corr_dfs = [] # Appending to list and then creating dataframe is substantially faster than appending to dataframe
         empty_df = pd.DataFrame({'r': {'pearson': np.nan}, 'p-val': {'pearson': np.nan}}) # Handle all-zero edges
         train_data = self.data['data'].loc[train_subs]
         train_data.columns = train_data.columns.astype(str)
-    
+
         N = len(self.data['edges'])
         n = 1
         percent = round((n/N)*100)
-    
+
         for edge in self.data['edges']: # Edge-wise correlation
             if (train_data[edge] != 0).any(): # All-zero columns will raise a ValueError exception. This is _way_ faster than try: except:
                 if perm >= 0:
@@ -649,18 +649,18 @@ class RayActor:
         combined_corr_dfs = pd.concat(corr_dfs) # Assembling df before .put() seems to avoid awfully slow pickling of data through queue (or whatever, it is orders of magnitude faster that way)
         return combined_corr_dfs
 
-    
+
     def predict(self, mask_dict, kfold_indices_train, kfold_indices_test, perm):
         train_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_train, self.data['edges']])
         test_vcts = pd.DataFrame(self.data['data'].loc[kfold_indices_test, self.data['edges']])
-        
+
         if perm >= 0:
             behav = "{}-perm-{}".format(self.data['behav'], perm)
         else:
             behav = self.data['behav']
-            
+
         train_behav = pd.DataFrame(self.data['data'].loc[kfold_indices_train, behav])
-    
+
         model = self.build_models(mask_dict, train_vcts, train_behav)
         behav_pred = self.apply_models(mask_dict, test_vcts, model)
         behav_pred["IDs"] = kfold_indices_test
@@ -669,14 +669,14 @@ class RayActor:
         behav_pred["train_IDs"] = kfold_indices_train # Debug
         behav_pred["test_IDs"] = kfold_indices_test # Debug
         behav_pred["perm"] = perm # Debug
-    
+
         return behav_pred
-        
-    
+
+
     def build_models(self, mask_dict, train_vcts, train_behav):
         """
-        Takes a feature mask, sums all edges in the mask for each subject, and uses simple linear 
-        regression to relate summed network strength to behavior; returns a dictionary with the    
+        Takes a feature mask, sums all edges in the mask for each subject, and uses simple linear
+        regression to relate summed network strength to behavior; returns a dictionary with the
         model
         """
 
@@ -694,7 +694,7 @@ class RayActor:
             lr.fit(summed_edges.reshape(-1, 1), train_behav)
             model_dict[tail] = (lr.coef_, lr.intercept_)
             t += 1
-        
+
         X_glm = np.c_[X_glm, np.ones(X_glm.shape[0])]
         model_dict["glm"] = tuple(np.linalg.lstsq(X_glm, train_behav, rcond=None)[0])
 
@@ -702,7 +702,7 @@ class RayActor:
 
     def apply_models(self, mask_dict, test_vcts, model_dict):
         """
-        Applies a previously trained linear regression model to a test set to generate 
+        Applies a previously trained linear regression model to a test set to generate
         predictions of behavior.
         """
 
