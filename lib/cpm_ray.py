@@ -411,17 +411,19 @@ class RayHandler:
       return self.fselection_results
 
   def get_prediction_results(self, **get_kwargs):
-      results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
-      if 'compress' in get_kwargs.keys() and get_kwargs['compress'] == True:
-          import lz4.frame
-          results = pickle.loads(lz4.frame.decompress(results))
+      results = [1] # Make len > 1
+      while len(results) > 1: # Loop e.g. for n > 0 in **get_kwargs, i.e. if you don't want to get results in total from results actor
+        results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
+        if 'compress' in get_kwargs.keys() and get_kwargs['compress'] == True:
+            import lz4.frame
+            results = pickle.loads(lz4.frame.decompress(results))
 
-      for results_dict in results:
-          if results_dict['perm'] not in self.prediction_results:
-              self.prediction_results[results_dict['perm']] = pd.DataFrame()
-              self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
-          for tail in ('pos', 'neg', 'glm'):
-              self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
+        for results_dict in results:
+            if results_dict['perm'] not in self.prediction_results:
+                self.prediction_results[results_dict['perm']] = pd.DataFrame()
+                self.prediction_results[results_dict['perm']]['observed'] = self.data_dict['data'][self.data_dict['behav']]
+            for tail in ('pos', 'neg', 'glm'):
+                self.prediction_results[results_dict['perm']].loc[results_dict['test_IDs'], [tail]] = results_dict[tail]
       return self.prediction_results
 
   def status(self, verbose=True):
