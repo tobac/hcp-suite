@@ -418,7 +418,7 @@ class RayHandler:
           n = get_kwargs['n']
         else:
           n = N
-        printv("Getting {}/{} results...".format(n, N))
+        printv("Getting {}/{} results...".format(n if n < N else N, N))
         results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
         if 'compress' in get_kwargs.keys() and get_kwargs['compress'] == True:
             import lz4.frame
