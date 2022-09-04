@@ -485,11 +485,12 @@ class ResultsActor:
         return self.fselection_results
 
     def get_prediction_results(self, n=-1, compress=False):
+      n_results = len(self.prediction_results)
       if n == -1:
-        to_return = self.prediction_results
+        n = n_results
       elif n > 0:
-        if n < len(self.prediction_results):
-          n = len(self.prediction_results)
+        if n < n_results:
+          n = n_results
         to_return = self.prediction_results[0:n]
         del self.prediction_results[0:n]
       if compress:
