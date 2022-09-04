@@ -492,7 +492,7 @@ class ResultsActor:
 
     def get_prediction_results(self, n=-1, compress=False):
       n_results = len(self.prediction_results)
-      if n < n_results: # a) by default n = -1 and therefore n = n_results; b) when n > 0 and less than requested results are available to receive, get only available results to avoid error
+      if n_results < n: # a) by default n = -1 and therefore by default n = n_results; b) when n > 0 and less than requested results are available to receive, get only available results to avoid error
         n = n_results
       to_return = self.prediction_results[0:n]
       del self.prediction_results[0:n]
