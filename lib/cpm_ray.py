@@ -411,8 +411,8 @@ class RayHandler:
       return self.fselection_results
 
   def get_prediction_results(self, **get_kwargs):
-      results = [1] # Make len > 1
-      while len(results) > 1: # Loop e.g. for n > 0 in **get_kwargs, i.e. if you don't want to get results in total from results actor
+      results = [1] # Make len > 0
+      while len(results) > 0: # Loop e.g. for n > 0 in **get_kwargs, i.e. if you don't want to get results in total from results actor
         results = ray.get(self.results_actor.get_prediction_results.remote(**get_kwargs))
         if 'compress' in get_kwargs.keys() and get_kwargs['compress'] == True:
             import lz4.frame
